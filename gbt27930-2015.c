@@ -6,11 +6,14 @@
 #include <time.h>
 #include "cJSON.h"
 char charging_addr[]="56";
-char charging_name[]="charging_pile";
+char charging_name[]="充电机";
 char bms_addr[]="F4";
 char bms_name[]="BMS";
-char pgn[]="000000\0";
-char message[256]={0};
+char error_addr[]="???";
+char pgn[]="000000";
+char info[256]={0};
+char muldata[256]={0};
+const char *mul_frame_id[] = {"1CEC56F4", "1CECF456", "1CEB56F4", "1CECF456"};
 
 //定义CAN数据结构
 typedef struct {
@@ -26,8 +29,8 @@ char *dest_addr(char *message){
     else if(strncmp(message,bms_addr,2)==0)
         dest=bms_name;
     else{
-        dest=NULL;
-        perror("dest addr adress is wrong!");
+        dest=error_addr;
+        // perror("dest addr adress is wrong!");
     }
     return dest;
 }
@@ -39,13 +42,14 @@ char *source_addr(char *message){
     else if(strncmp(message,bms_addr,2)==0)
         source=bms_name;
     else{
-        source=NULL;
-        perror("source adress is wrong!");
+        source=error_addr;
+        // perror("source adress is wrong!");
     }
     return source;
 }
 
 int get_pgn(char *message){
+    memset(pgn,'0',sizeof(pgn)-1);
     char *endptr;
     char *p=message+2;
     pgn[2]=*p++;
@@ -55,7 +59,6 @@ int get_pgn(char *message){
         fprintf(stderr, "Conversion failed: invalid hex string.\n");
         exit(1);
     }
-
     int size = snprintf(NULL, 0, "%ld", decimal) + 1;
     snprintf(pgn, size, "%ld", decimal);
     pgn[size]='\0';
@@ -75,9 +78,6 @@ CANInfo format_data(const char* line) {
         strncpy(result.can_id, p_id + 1, cid_len);
         result.can_id[cid_len] = '\0'; // 添加字符串终止符
 
-        // 将CAN ID从十六进制字符串转换为整数
-        // result.can_id = strtoul(result.can_data, NULL, 16);
-
         // 提取CAN数据
         int cdata_len = strlen(line) - (p_data - line + 1);
         strncpy(result.can_data, p_data + 1, cdata_len);
@@ -92,36 +92,52 @@ CANInfo format_data(const char* line) {
 
 
 char *pgn_message(char *pgn, cJSON *pgn_json) {
-    char *ptr=message;
+    memset(info,0,sizeof(info));
+    char *ptr=info;
     cJSON *pgn_obj = cJSON_GetObjectItem(pgn_json, pgn);
     if (pgn_obj != NULL && cJSON_IsObject(pgn_obj)){
          cJSON *item = pgn_obj->child;
         while (item != NULL) {
             // 检查项的类型并格式化字符串
             if (item->type == cJSON_String) {
-                ptr += sprintf(ptr, "%s\t", item->valuestring);
+                ptr += sprintf(ptr, "%s,", item->valuestring);
             } else if (item->type == cJSON_Number) {
-                ptr += sprintf(ptr, "%d\t", item->valueint);
+                ptr += sprintf(ptr, "%d,", item->valueint);
             }
             item = item->next;
         }
     }
     *ptr='\0';
+    ptr=info;
     return ptr;
 }
 
+int ismul_frame(char *id){
+    int len=sizeof(mul_frame_id)/sizeof(mul_frame_id[0]);
+    for(int i=0;i<len;i++){
+        if(strncmp(id,mul_frame_id[i],8)==0){
+            return 1;
+        }
+    }
+    return 0;
+}
+
+
+char *pgn_content(char *pgn, char *can_data){
+    return NULL;
+}
 
 int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <CAN日志文件>\n", argv[0]);
+        return 1;
+    }
+
     // 定义CSV的头部字段
     const char* header_fields[] = {"帧编号", "帧id", "阶段", "PGN", "报文代号", "报文描述", "优先权", "源地址-目的地址", "帧长度", "帧数据", "帧数据含义"}; 
     const int num_header_fields = sizeof(header_fields) / sizeof(header_fields[0]);
 
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <CAN log file>\n", argv[0]);
-        return 1;
-    }
-
-    // Open the output CSV file
+    // 打开将要输出的目标csv文件
     char output_filename[256];
     time_t now = time(NULL);
     struct tm* local_time = localtime(&now);
@@ -132,7 +148,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Write CSV header
+    // 写csv文件头
     for (int i = 0; i < num_header_fields; ++i) {
         fprintf(output_file, "%s%c", header_fields[i], (i < num_header_fields - 1) ? ',' : '\n');
     }
@@ -157,6 +173,7 @@ int main(int argc, char* argv[]) {
         fclose(output_file);
         return 1;
     }
+
     size_t result = fread(file_content, 1, file_size, pgn_file);
     if (result != (size_t)file_size) {
         perror("Error reading file");
@@ -165,6 +182,7 @@ int main(int argc, char* argv[]) {
         fclose(output_file);
         return 1;
     }
+
     // 解析JSON
     cJSON *pgn_json = cJSON_Parse(file_content);
     if (pgn_json == NULL) {
@@ -173,7 +191,7 @@ int main(int argc, char* argv[]) {
         free(file_content);
         fclose(pgn_file);
         fclose(output_file);
-        return EXIT_FAILURE;
+        return 1;
     }
 
     //打开CAN日志文件
@@ -186,35 +204,95 @@ int main(int argc, char* argv[]) {
     }
 
     // 使用pgn_json进行逻辑处理
-    char line[1024];
-    char line_input[1024]={0};
+    char line_input[1024];
+    char line_output[1024]={0};
     CANInfo caninfo;
     char data_len_str[50]; 
-    while (fgets(line, sizeof(line), input_file)) {
-        int line_num = 0;
+    int line_num = 0;
+    while (fgets(line_input, sizeof(line_input), input_file)) {
         // 去除每行末尾的换行符
-        line[strcspn(line, "\n")] = 0;
+        line_input[strcspn(line_input, "\n")] = 0;
 
-        caninfo=format_data(line);
-        char can_data_len = '0'+((strlen(caninfo.can_data))/2); // 获取字符串长度
-        get_pgn(&caninfo.can_id);
-        char *dest =dest_addr(caninfo.can_id);
-        char *source=source_addr(caninfo.can_id);
+        caninfo=format_data(line_input);
+        int can_data_len = ((strlen(caninfo.can_data))/2); // 获取字符串长度
+        get_pgn(caninfo.can_id);
+        char *dest =dest_addr(&caninfo.can_id[4]);
+        char *source=source_addr(&caninfo.can_id[6]);
+        char *ptr=line_output;
 
         if(cJSON_HasObjectItem(pgn_json, pgn)){
-            sprintf(line_input, "%d\t0x%s\t", line_num, caninfo.can_id);
+            ptr+=sprintf(ptr, "%d,0x%s,", line_num, caninfo.can_id);
             char *message = pgn_message(pgn,pgn_json);
-        }else{
-            //多帧处理
-        }
+            ptr+=sprintf(ptr, "%s%s-%s,%d,0x%s,", message, source, dest, can_data_len, caninfo.can_data);
 
-        
+            char *content = pgn_content(pgn, caninfo.can_data);
+            sprintf(ptr, "%s", content);
+            fprintf(output_file, "%s\n", line_output);
+        }
+        else if(ismul_frame(caninfo.can_id)){//多帧处理
+            int byte_num,frame_num,frame_first,receive_byte_num,receive_frame_num;
+            static int mul_frame_num=0;
+            char num[3],*mul_pgn;
+            char *mulptr=muldata;
+            char *pcandata=caninfo.can_data;
+            get_pgn(pcandata+10);
+            ptr+=sprintf(ptr, "%d,0x%s,", line_num, caninfo.can_id);
+            char *message = pgn_message(pgn,pgn_json);
+            if(message){
+                ptr+=sprintf(ptr, "%s%s-%s,%d,0x%s,", message, source, dest, can_data_len, caninfo.can_data);
+            }
+            
+            if(strncmp(pcandata,"10",2)==0){
+                memset(num,0,3);
+                strncpy(num,(pcandata+2),2);
+                byte_num=(int)(strtol(num,NULL,16));
+                strncpy(num,(pcandata+6),2);
+                frame_num=(int)(strtol(num,NULL,16));
+                sprintf(ptr, "多帧发送请求帧 总字节数为%d 需要发送的总帧数为%d", byte_num, frame_num);
+            }else if(strncmp(pcandata,"11",2)==0){
+                memset(num,0,3);
+                strncpy(num,(pcandata+2),2);
+                frame_num=(int)(strtol(num,NULL,16));
+                strncpy(num,(pcandata+4),2);
+                frame_first=(int)(strtol(num,NULL,16));
+                mul_pgn=pgn;
+                sprintf(ptr, "多帧请求响应帧 可发送帧数为%d 多帧发送时首帧的帧号为%d", frame_num, frame_first);
+            }else if(strncmp(pcandata,"13",2)==0){
+                memset(num,0,3);
+                strncpy(num,(pcandata+2),2);
+                receive_byte_num=(int)(strtol(num,NULL,16));
+                strncpy(num,(pcandata+6),2);
+                receive_frame_num=(int)(strtol(num,NULL,16));
+                ptr+=sprintf(ptr, "多帧接收完成帧 收到总字节数为%d 收到总帧数为%d \n多帧解析结果：【", receive_byte_num, receive_frame_num);
+                
+                char *content=pgn_content(pgn,muldata);
+                sprintf(ptr, "%s】", content);        
+                
+                memset(muldata,0,sizeof(muldata));
+                mulptr=muldata;
+                mul_frame_num=0;
+            }else{
+                mulptr+=sprintf(mulptr, "%s", (pcandata+2));
+                mul_frame_num++;
+
+                char *message=pgn_message(mul_pgn,pgn_json);
+                ptr+=sprintf(ptr, "%s%s-%s,%d,0x%s,", message, source, dest, can_data_len, caninfo.can_data);
+                sprintf(ptr, "多帧发送的第%d帧", mul_frame_num);
+            }
+            fprintf(output_file, "%s\n", line_output);
+        }else{
+            sprintf(ptr, "%d,0x%s,-,-,-,-,-,%s-%s,%d,0x%s,-", line_num, caninfo.can_id, source, dest, can_data_len, caninfo.can_data);
+            fprintf(output_file, "%s\n", line_output);        
+        }  
+        line_num++;
     }
 
     // 清理资源
     cJSON_Delete(pgn_json);
     free(file_content);
     fclose(pgn_file);
+    fclose(input_file);
+    fclose(output_file);
 
     return 0;
 }
