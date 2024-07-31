@@ -11,6 +11,7 @@ char bms_addr[]="F4";
 char bms_name[]="BMS";
 char error_addr[]="???";
 char pgn[]="000000";
+char mul_pgn[]="000000";
 char info[256]={0};
 char muldata[256]={0};
 const char *mul_frame_id[] = {"1CEC56F4", "1CECF456", "1CEB56F4", "1CECF456"};
@@ -96,7 +97,7 @@ char *pgn_message(char *pgn, cJSON *pgn_json) {
     char *ptr=info;
     cJSON *pgn_obj = cJSON_GetObjectItem(pgn_json, pgn);
     if (pgn_obj != NULL && cJSON_IsObject(pgn_obj)){
-         cJSON *item = pgn_obj->child;
+        cJSON *item = pgn_obj->child;
         while (item != NULL) {
             // 检查项的类型并格式化字符串
             if (item->type == cJSON_String) {
@@ -106,9 +107,11 @@ char *pgn_message(char *pgn, cJSON *pgn_json) {
             }
             item = item->next;
         }
+        *ptr='\0';
+        ptr=info;
+    }else{
+        ptr=NULL;
     }
-    *ptr='\0';
-    ptr=info;
     return ptr;
 }
 
@@ -205,7 +208,7 @@ int main(int argc, char* argv[]) {
 
     // 使用pgn_json进行逻辑处理
     char line_input[1024];
-    char line_output[1024]={0};
+    char line_output[1024];
     CANInfo caninfo;
     char data_len_str[50]; 
     int line_num = 0;
@@ -218,7 +221,9 @@ int main(int argc, char* argv[]) {
         get_pgn(caninfo.can_id);
         char *dest =dest_addr(&caninfo.can_id[4]);
         char *source=source_addr(&caninfo.can_id[6]);
+        memset(line_output,0,sizeof(line_output));
         char *ptr=line_output;
+        char *mulptr=muldata,*mulpgn=mul_pgn;
 
         if(cJSON_HasObjectItem(pgn_json, pgn)){
             ptr+=sprintf(ptr, "%d,0x%s,", line_num, caninfo.can_id);
@@ -232,15 +237,12 @@ int main(int argc, char* argv[]) {
         else if(ismul_frame(caninfo.can_id)){//多帧处理
             int byte_num,frame_num,frame_first,receive_byte_num,receive_frame_num;
             static int mul_frame_num=0;
-            char num[3],*mul_pgn;
-            char *mulptr=muldata;
+            char num[3];           
             char *pcandata=caninfo.can_data;
             get_pgn(pcandata+10);
             ptr+=sprintf(ptr, "%d,0x%s,", line_num, caninfo.can_id);
             char *message = pgn_message(pgn,pgn_json);
-            if(message){
-                ptr+=sprintf(ptr, "%s%s-%s,%d,0x%s,", message, source, dest, can_data_len, caninfo.can_data);
-            }
+            ptr+=sprintf(ptr, "%s%s-%s,%d,0x%s,", message, source, dest, can_data_len, caninfo.can_data);
             
             if(strncmp(pcandata,"10",2)==0){
                 memset(num,0,3);
@@ -255,7 +257,7 @@ int main(int argc, char* argv[]) {
                 frame_num=(int)(strtol(num,NULL,16));
                 strncpy(num,(pcandata+4),2);
                 frame_first=(int)(strtol(num,NULL,16));
-                mul_pgn=pgn;
+                strncpy(mul_pgn,pgn,sizeof(pgn));
                 sprintf(ptr, "多帧请求响应帧 可发送帧数为%d 多帧发送时首帧的帧号为%d", frame_num, frame_first);
             }else if(strncmp(pcandata,"13",2)==0){
                 memset(num,0,3);
@@ -275,7 +277,10 @@ int main(int argc, char* argv[]) {
                 mulptr+=sprintf(mulptr, "%s", (pcandata+2));
                 mul_frame_num++;
 
-                char *message=pgn_message(mul_pgn,pgn_json);
+                memset(line_output,0,  sizeof(line_output));
+                ptr=line_output;
+                ptr+=sprintf(ptr, "%d,0x%s,", line_num, caninfo.can_id);
+                message=pgn_message(mul_pgn,pgn_json);
                 ptr+=sprintf(ptr, "%s%s-%s,%d,0x%s,", message, source, dest, can_data_len, caninfo.can_data);
                 sprintf(ptr, "多帧发送的第%d帧", mul_frame_num);
             }
