@@ -6,9 +6,19 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include "gbt27930-2015.h"
+
+extern char line_output[1024];
+extern char line_input[1024];
+extern FILE *output_file;
+extern cJSON *pgn_json ;
  
 #define SERVER_PORT     8888  
- 
+
+typedef enum{
+    
+}BMS_STATUS;
+
 int main(void){
     struct sockaddr_in server_addr = {0};
     struct sockaddr_in client_addr = {0};
