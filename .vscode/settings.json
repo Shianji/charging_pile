@@ -3,6 +3,8 @@
         "stdlib.h": "c",
         "string.h": "c",
         "time.h": "c",
-        "cjson.h": "c"
+        "cjson.h": "c",
+        "types.h": "c",
+        "cstdlib": "c"
     }
 }

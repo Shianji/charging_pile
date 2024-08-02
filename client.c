@@ -6,23 +6,27 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <signal.h>
+#include <sys/time.h>
+#include <sys/wait.h>
 #include "gbt27930-2015.h"
 
-extern char line_output[1024];
-extern char line_input[1024];
-extern FILE *output_file;
-extern cJSON *pgn_json ;
- 
+
 #define SERVER_PORT		8888          	//服务器的端口号
 #define SERVER_IP   	"172.16.41.204"	//服务器的IP地址
+#define NUM_CHILDREN    11
 
-void sent_frame(char *frame,int cycletime){
-    if(cycletime==0){
 
-    }else{
-
-    }
-}
+#define         CFRAME_CHM             "1"           //充电机握手报文
+#define         CFRAME_CRM_00          "3"           //充电机辨识报文
+#define         CFRAME_CRM_AA          "3"           //充电机辨识报文
+#define         CFRAME_CTS             "6"           //充电机发送时间同步信息报文
+#define         CFRAME_CML             "7"           //充电机最大输出能力报文
+#define         CFRAME_CRO_00          "9"           //充电机输出准备就绪状态报文
+#define         CFRAME_CRO_AA          "9"           //充电机输出准备就绪状态报文
+#define         CFRAME_CCS             "12"         //充电机充电状态报文
+#define         CFRAME_CST             "18"         //充电机中止充电报文
+#define         CFRAME_CSD             "20"         //充电机统计数据报文
 
 
 typedef enum{
@@ -55,6 +59,8 @@ typedef enum{
 }CHARGING_STATE;
 
 CHARGING_STATE state=START;
+pid_t children[NUM_CHILDREN]={0};
+int pnum=0;
 
 void charging_init(){
     printf("车辆接口已确认\n");
@@ -71,6 +77,7 @@ void parameter_check(){
 }
 
 void charge_check(){
+    sleep(30);//模拟充电准备，睡30s
     printf("充电机准备就绪\n");
 }
 
@@ -79,194 +86,128 @@ void charging_disconnect(){
     printf("电子锁解锁\n");
 }
 
+void terminate_children(pid_t pid_to_kill) {
+    // 向指定的进程发送 SIGTERM 信号
+    if (kill(pid_to_kill, SIGKILL) == -1) {
+        printf("kill %d failure\n",pid_to_kill);
+        exit(EXIT_FAILURE);
+    }
+    // 等待指定的进程终止
+    int status;
+    if (waitpid(pid_to_kill, NULL, 0) == -1) {
+        printf("waitpid %d failure\n",pid_to_kill);
+        exit(EXIT_FAILURE);
+    }
+}
 
-int main(void){
-    pid_t pid;
-    while(1){
-        switch(state){
-            case START:
-                charging_init();
-                state=LOOP_CLOSURE;
-                break;
-            case LOOP_CLOSURE:
-                state=CYCLE_SENT_CHM;
-                pid =fork();
-                if(pid<0){
-                    printf("fork1 error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    //子进程1周期发送CHM
-                }
-                break;
-            case CYCLE_SENT_CHM:
-                //阻塞接收，超时(大于10S)应进入超时处理，此处直接转退出状态
-                state=RECV_BHM;
-                break;
-            case RECV_BHM:
-                self_check();
-                state=SELFCHECK_SUCCESS;
-                break;
-            case SELFCHECK_SUCCESS:
-                state=CYCLE_SENT_CRM_00;
-                //杀死子进程1
-                pid =fork();
-                if(pid<0){
-                    printf("fork error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    //子进程2周期发送CRM（00）
-                }
-                break;
-            case CYCLE_SENT_CRM_00:
-                //阻塞接收，超时(大于5S)应进入超时处理，此处直接转退出状态
-                state=RECV_BRM;
-                break;
-            case RECV_BRM:
-                state=CYCLE_SENT_CRM_AA;
-                //杀死子进程2
-                pid =fork();
-                if(pid<0){
-                    printf("fork error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    //子进程3周期发送CRM(AA)
-                }
-                break;
-            case CYCLE_SENT_CRM_AA:
-                //阻塞接收，超时(大于5S)应进入超时处理，此处直接转退出状态
-                //杀死子进程3
-                state=RECV_BCP_STOP_SENT_CRM;
-                break;
-            case RECV_BCP_STOP_SENT_CRM:
-                parameter_check();
-                state=PARAMETET_ADAPT;
-                break;
-            case PARAMETET_ADAPT:
-                state=CYCLE_SENT_CTS_CML;
-                pid =fork();
-                if(pid<0){
-                    printf("fork error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    //子进程4周期发送CTS CML
-                }
-                break;
-            case CYCLE_SENT_CTS_CML:
-                //阻塞接收，超时(大于5S)应进入超时处理，此处直接转退出状态
-                state=RECV_BRO_00;
-                break;
-            case RECV_BRO_00:
-                //阻塞接收，超时(大于55S)应进入超时处理，此处直接转退出状态      (是否要改动？？？)
-                //杀死子进程4
-                state=RECV_BRO_AA_STOP_SENT_CTS_SML;
-                break;
-            case RECV_BRO_AA_STOP_SENT_CTS_SML:
-                state=CYCLE_SENT_CRO_00;
-                pid =fork();
-                if(pid<0){
-                    printf("fork error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    //子进程5周期发送CRO（00）
-                }
-                break;
-            case CYCLE_SENT_CRO_00:
-                //创建子进程进行充电机准备
-                pid =fork();
-                if(pid<0){
-                    printf("fork error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    charge_check();
-                    //子进程6进行充电机准备
-                    //准备完之后就exit退出
-                    //可以考虑用全局变量通知父进程？
-                }
-                //循环接收BRO，以等待充电机准备就绪，超时(每次距离上次接收大于5S)应进入超时处理，此处直接转退出状态，若收到的报文不是AA，应发送CTS报文，此处转退出状态
-                state=CHARGE_READY;
-                break;
-            case CHARGE_READY:
-                state=CYCLE_SENT_CRO_AA;
-                //杀死子进程5
-                pid =fork();
-                if(pid<0){
-                    printf("fork error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    //子进程7周期发送CRO（AA）
-                }
-                break;
-            case CYCLE_SENT_CRO_AA:
-                //阻塞接收BCL,超时(1S)应进入超时处理，此处直接转退出状态
-                state=RECV_BCL_STOP_SENT_CRO;
-                //杀死进程7
-                break;
-            case RECV_BCL_STOP_SENT_CRO:
-                state=CYCLE_SENT_CCS;
-                pid =fork();
-                if(pid<0){
-                    printf("fork error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    //子进程8周期发送CCS
-                }
-                break;
-            case CYCLE_SENT_CCS:
-                //循环接收BCL BCS BSM（根据这个报文判断充电继续还是暂停充电，此处直接默认继续，若SPN3096不为00,需判断是否收到BST报文或满足结束充电要求，考虑全局变量实现？） ，并判断是否超时，进行相应超时处理，此处转退出状态
-                break;
-            case TOCLOSE:
-                state=CYCLE_SENT_CST;
-                pid =fork();
-                if(pid<0){
-                    printf("fork error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    //子进程9周期发送CST
-                }
-                break;
-            case CYCLE_SENT_CST:
-                //判断是不是充电机主动中止充电
-                //若是则要阻塞等待接收BST,超时(5S)应进入超时处理，此处直接转退出状态
-                //等待接收到BST或者不是充电机主动发起结束充电(这也说明已经收到BST)，检测BSD
-                state=RECV_BST;
-                break;
-            case RECV_BST:
-                //阻塞等待接收BSD,超时(5S)应进入超时处理，此处直接转退出状态
-                break;
-            case RECV_BSD:
-                //杀死进程9,结束发送CST
-                state=CYCLE_SENT_CSD;
-                pid =fork();
-                if(pid<0){
-                    printf("fork error!\n");
-                    exit(EXIT_FAILURE);
-                }else if(pid==0){
-                    //子进程10周期发送CSD
-                }
-                break;
-            case CYCLE_SENT_CSD:
-                charging_disconnect();
-                state=LOOP_CLOSURE;
-                break;
-            case LOOP_DISCONNECT:
-                //睡1OS,然后杀死进程？
-                break;
-            case EXIT_CHARGING:
-                //杀死所有子进程
-                break;
-            default:
-                printf("不合法的状态，程序退出\n");
-                exit(EXIT_FAILURE);
-
+void terminate_allchildren() {
+    for (int i = 0; i < NUM_CHILDREN; i++) {
+        if (children[i] > 0) {
+            kill(children[i], SIGKILL); 
         }
     }
+    // 等待所有子进程终止
+    for (int i = 0; i < NUM_CHILDREN; i++) {
+        if (children[i] > 0) {
+            waitpid(children[i], NULL, 0);
+        }
+    }
+}
+
+//周期发送帧数据函数，cycletime_ms为循环发送周期，单位为毫秒，传入0表示只发送一次
+void cycle_sent_frame(int sockfd, char *frame,int cycletime_ms){
+    int ret, franmelen=strlen(frame);
+    unsigned int cycletime_us = cycletime_ms * 1000;
+    if(cycletime_ms==0){
+        ret = send(sockfd, frame, franmelen, 0);
+        if(ret != franmelen){
+            printf("数据发送错误， 需发送字节：%d,实际发送字节： ",franmelen, ret);
+        }
+    }else{
+        while(1){
+        ret = send(sockfd, frame, franmelen, 0);
+        if(ret != franmelen){
+            printf("数据发送错误， 需发送字节：%d,实际发送字节： ",franmelen, ret);
+        }
+        // 等待指定的周期时间（以微秒为单位）
+        usleep(cycletime_us);
+        }
+    }
+}
 
 
 
+//阻塞接收帧数据函数，frame为要接收的帧类型，starttime_s为阻塞接收的时间，单位为秒,match表示是否需要匹配00还是AA，传入NULL表示不匹配
+int block_recv(int sockfd,char *recvbuf,int buflen,int frame,int starttime_s,char *match){
+    int recvbytes=0,frame_type;
+    if(frame==UNKOWN){
+        if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, NULL, 0) < 0) {
+            perror("套接字超时时间设置出错\n");
+            exit(EXIT_FAILURE);
+        }
+        recvbytes = recv(sockfd, recvbuf, buflen - 1, 0);
+        if (recvbytes == -1) {
+            perror("帧数据接收出错\n");
+            close(sockfd);
+            exit(EXIT_FAILURE);
+        }
+        frame_type=can_parse(recvbuf,pgn_json);
+        return frame_type;
+    }else{
+        time_t recv_time;
+        struct timeval timeout;
+        timeout.tv_sec = starttime_s;
+        timeout.tv_usec = 0;
+        while(1){
+            recv_time = time(NULL);
+            memset(recvbuf,0,buflen);
+            if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+                printf("套接字超时时间设置出错\n");
+                close(sockfd);
+                exit(EXIT_FAILURE);
+            }
+            recvbytes = recv(sockfd, recvbuf, buflen - 1, 0);
+            if (recvbytes == -1) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    printf("帧数据接收超时\n");
+                    return -1;
+                } else {
+                    perror("帧数据接收出错\n");
+                    close(sockfd);
+                    exit(EXIT_FAILURE);
+                }
+            }else{
+                frame_type=can_parse(recvbuf,pgn_json);
+                if(frame_type==frame){
+                    if(match==NULL){
+                        fprintf(output_file, "%s\n", line_output);
+                        return 0;
+                    }else{
+                        switch(frame){
+                            case BRO:
+                                if(strncmp(caninfo.can_data,match,2)==0){
+                                    fprintf(output_file, "%s\n", line_output);
+                                    return 0;
+                                }
+                                break;
+                            default:
+                                break;
+                        }
+                    }                 
+                }
+                timeout.tv_sec-=(time(NULL)-recv_time);
+            }
+        }
+    }
+    
+}
+
+
+int main(void){
     struct sockaddr_in server_addr = {0};
-    char buf[512];
     int sockfd;
-    int ret;
+    int ret,over=0;
+    time_t first_sent_CML_time;
  
     /* 打开套接字，得到套接字描述符 */
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -280,7 +221,7 @@ int main(void){
     server_addr.sin_port = htons(SERVER_PORT);  //端口号
     inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr);//IP地址
     ret = connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
-    if (0 > ret) {
+    if (ret<0) {
         perror("connect error");
         close(sockfd);
         exit(EXIT_FAILURE);
@@ -288,25 +229,247 @@ int main(void){
     printf("服务器连接成功...\n\n");
  
     /* 向服务器发送数据 */
-    for ( ; ; ) {
-        // 清理缓冲区
-        memset(buf, 0x0, sizeof(buf));
- 
-        // 接收用户输入的字符串数据
-        printf("Please enter a string: ");
-        fgets(buf, sizeof(buf), stdin);
- 
-        // 将用户输入的数据发送给服务器
-        ret = send(sockfd, buf, strlen(buf), 0);
-        if(0 > ret){
-            perror("send error");
+    while(1){
+        pnum=0;
+        memset(children,0,sizeof(children));
+        switch(state){
+            case START:
+                charging_init();
+                state=LOOP_CLOSURE;
+                break;
+            case LOOP_CLOSURE:
+                state=CYCLE_SENT_CHM;
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    cycle_sent_frame(sockfd, CFRAME_CHM, 250);//子进程1周期发送CHM
+                }
+                pnum++;
+                break;
+            case CYCLE_SENT_CHM:
+                ret=block_recv(sockfd,line_input,sizeof(line_input),BHM,10,NULL);//阻塞接收BHM，超时(大于10S)应进入超时处理，此处直接转退出状态
+                if(ret<0){
+                    state=EXIT_CHARGING;
+                }
+                state=RECV_BHM;
+                break;
+            case RECV_BHM:
+                self_check();
+                state=SELFCHECK_SUCCESS;
+                break;
+            case SELFCHECK_SUCCESS:
+                state=CYCLE_SENT_CRM_00;
+                terminate_children(children[pnum-1]);//杀死子进程1
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    cycle_sent_frame(sockfd, CFRAME_CRM_00, 250);//子进程2周期发送CRM（00）
+                }
+                pnum++;
+                break;
+            case CYCLE_SENT_CRM_00:
+                ret=block_recv(sockfd,line_input,sizeof(line_input),BRM,5,NULL);//阻塞接收BRM，超时(大于5S)应进入超时处理，此处直接转退出状态
+                if(ret<0){
+                    state=EXIT_CHARGING;
+                }
+                state=RECV_BRM;
+                break;
+            case RECV_BRM:
+                state=CYCLE_SENT_CRM_AA;
+                terminate_children(children[pnum-1]);//杀死子进程2
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    cycle_sent_frame(sockfd, CFRAME_CRM_AA, 250);//子进程3周期发送CRM(AA)
+                }
+                pnum++;
+                break;
+            case CYCLE_SENT_CRM_AA:
+                ret=block_recv(sockfd,line_input,sizeof(line_input),BCP,5,NULL);//阻塞接收BCP，超时(大于5S)应进入超时处理，此处直接转退出状态
+                if(ret<0){
+                    state=EXIT_CHARGING;
+                }
+                terminate_children(children[pnum-1]);//杀死子进程3
+                state=RECV_BCP_STOP_SENT_CRM;
+                break;
+            case RECV_BCP_STOP_SENT_CRM:
+                parameter_check();
+                state=PARAMETET_ADAPT;
+                break;
+            case PARAMETET_ADAPT:
+                state=CYCLE_SENT_CTS_CML;
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    cycle_sent_frame(sockfd, CFRAME_CTS, 500);//子进程4周期发送CTS
+                }
+                pnum++;
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    first_sent_CML_time=time(NULL);
+                    cycle_sent_frame(sockfd, CFRAME_CML, 250);//子进程5周期发送CML
+                }
+                pnum++;
+                break;
+            case CYCLE_SENT_CTS_CML:
+                ret=block_recv(sockfd,line_input,sizeof(line_input),BRO,5,"00");//阻塞接收BRO_00，超时(大于5S)应进入超时处理，此处直接转退出状态
+                if(ret<0){
+                    state=EXIT_CHARGING;
+                }
+                state=RECV_BRO_00;
+                break;
+            case RECV_BRO_00:
+                ret=block_recv(sockfd,line_input,sizeof(line_input),BRO,(60-(time(NULL)-first_sent_CML_time)),"AA");//阻塞接收BRO_AA，超时(大于60S)应进入超时处理，此处直接转退出状态      (是否要改动？？？)
+                if(ret<0){
+                    state=EXIT_CHARGING;
+                }
+                terminate_children(children[pnum-2]);//杀死子进程4
+                terminate_children(children[pnum-1]);//杀死子进程5
+                state=RECV_BRO_AA_STOP_SENT_CTS_SML;
+                break;
+            case RECV_BRO_AA_STOP_SENT_CTS_SML:
+                state=CYCLE_SENT_CRO_00;
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    cycle_sent_frame(sockfd, CFRAME_CRO_00, 250);//子进程6周期发送CRO（00）
+                }
+                pnum++;
+                break;
+            case CYCLE_SENT_CRO_00:
+                children[pnum] =fork();//创建子进程进行充电机准备
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    charge_check();//子进程7进行充电机准备
+                    exit(0);//准备完之后就exit退出
+                }
+                pnum++;
+                //循环接收BRO，以等待充电机准备就绪，超时(每次距离上次接收大于5S)应进入超时处理，此处直接转退出状态，若收到的报文不是AA，应发送CTS报文，此处转退出状态
+                while(1){
+                    ret=block_recv(sockfd,line_input,sizeof(line_input),BRO,5,"AA");
+                    if(ret<0){
+                        state=EXIT_CHARGING;
+                    }
+                    if(waitpid(children[pnum-1],NULL,WNOHANG)==children[pnum-1]){
+                        break;
+                    }
+                }
+                state=CHARGE_READY;
+                break;
+            case CHARGE_READY:
+                state=CYCLE_SENT_CRO_AA;
+                terminate_children(children[pnum-2]);//杀死子进程6
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    cycle_sent_frame(sockfd, CFRAME_CRO_AA, 250);//子进程8周期发送CRO（AA）
+                }
+                pnum++;
+                break;
+            case CYCLE_SENT_CRO_AA:
+                ret=block_recv(sockfd,line_input,sizeof(line_input),BCL,1,NULL);//阻塞接收BCL,超时(1S)应进入超时处理，此处直接转退出状态
+                if(ret<0){
+                    state=EXIT_CHARGING;
+                }
+                state=RECV_BCL_STOP_SENT_CRO;
+                terminate_children(children[pnum-1]);//杀死子进程8
+                break;
+            case RECV_BCL_STOP_SENT_CRO:
+                state=CYCLE_SENT_CCS;
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    cycle_sent_frame(sockfd, CFRAME_CCS, 250);//子进程9周期发送CCS
+                }
+                pnum++;
+                break;
+            case CYCLE_SENT_CCS:
+                //循环接收BCL BCS BSM（根据这个报文判断充电继续还是暂停充电，此处直接默认继续，若SPN3096不为00,需判断是否收到BST报文或满足结束充电要求，考虑全局变量实现？） ，并判断是否超时，进行相应超时处理，此处转退出状态
+                time_t t=time(NULL);
+                int type,BCL_time=t,BCS_time=t,BSM_time=t,get_BST=0;
+                while(1){
+                    //循环判断收到的帧是哪几种帧，在判断超时
+                    type=block_recv(sockfd,line_input,sizeof(line_input),UNKOWN,0,NULL);
+                    switch(type){
+
+                    }
+                }
+                
+                
+                break;
+            case TOCLOSE:
+                state=CYCLE_SENT_CST;
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    cycle_sent_frame(sockfd, CFRAME_CST, 250);//子进程10周期发送CST
+                }
+                pnum++;
+                break;
+            case CYCLE_SENT_CST:
+                //判断是不是充电机主动中止充电
+                //若是则要阻塞等待接收BST,超时(5S)应进入超时处理，此处直接转退出状态
+                //等待接收到BST或者不是充电机主动发起结束充电(这也说明已经收到BST)，检测BSD
+                state=RECV_BST;
+                break;
+            case RECV_BST:
+                //阻塞等待接收BSD,超时(5S)应进入超时处理，此处直接转退出状态
+                break;
+            case RECV_BSD:
+                terminate_children(children[pnum-1]);//杀死进程10,结束发送CST
+                state=CYCLE_SENT_CSD;
+                children[pnum] =fork();
+                if(children[pnum]<0){
+                    printf("fork p%d error!\n",pnum);
+                    exit(EXIT_FAILURE);
+                }else if(children[pnum]==0){
+                    cycle_sent_frame(sockfd, CFRAME_CSD, 250);//子进程11周期发送CSD
+                }
+                pnum++;
+                break;
+            case CYCLE_SENT_CSD:
+                charging_disconnect();
+                state=LOOP_CLOSURE;
+                break;
+            case LOOP_DISCONNECT:
+                sleep(10);//睡1OS,然后退出
+                state=EXIT_CHARGING;
+                break;
+            case EXIT_CHARGING:
+                terminate_allchildren();
+                over=1;
+                break;
+            default:
+                printf("不合法的状态，程序退出\n");
+                terminate_allchildren();
+                exit(EXIT_FAILURE);
+
+        }
+        if(over==1){
             break;
         }
- 
-        //输入了"exit"，退出循环
-        if(0 == strncmp(buf, "exit", 4))
-            break;
     }
     close(sockfd);
-    exit(EXIT_SUCCESS);
+    return 0;
 }

@@ -1,12 +1,5 @@
 #include "gbt27930-2015.h"
 
-// 定义CAN数据结构
-typedef struct
-{
-    char can_id[9];    // CAN ID
-    char can_data[17]; // CAN数据，最多8个字节，以16进制字符串表示，每个字节占2个字符,加上终止符'\0'
-} CANInfo;
-
 char charging_addr[] = "56";
 char charging_name[] = "充电机";
 char bms_addr[] = "F4";
@@ -25,44 +18,6 @@ int line_num = 0;
 char output_filename[256];
 FILE *output_file;
 cJSON *pgn_json;
-
-typedef enum {
-    UNKNOWN = 0,  // 非法PGN报文
-
-    // 低压辅助上电及充电握手阶段
-    CHM = 1,      // 充电机握手报文
-    BHM = 2,      // 车辆握手报文
-    CRM = 3,      // 充电机辨识报文
-    BRM = 4,      // BMS和车辆辨识报文
-
-    // 充电参数配置阶段
-    BCP = 5,      // 动力蓄电池充电参数报文
-    CTS = 6,      // 充电机发送时间同步信息报文
-    CML = 7,      // 充电机最大输出能力报文
-    BRO = 8,      // 车辆充电准备就绪状态报文
-    CRO = 9,      // 充电机输出准备就绪状态报文
-
-    // 充电阶段
-    BCL = 10,     // 电池充电需求报文
-    BCS = 11,     // 电池充电总状态报文
-    CCS = 12,     // 充电机充电状态报文
-    BSM = 13,     // 动力蓄电池状态信息报文
-    BMV = 14,     // 单体动力蓄电池电压报文
-    BMT = 15,     // 动力蓄电池温度报文
-    BSP = 16,     // 动力蓄电池预留报文
-    BST = 17,     // 车辆中止充电报文
-    CST = 18,     // 充电机中止充电报文
-
-    // 充电结束阶段
-    BSD = 19,     // 车辆统计数据报文
-    CSD = 20,     // 充电机统计数据报文
-
-    // 错误报文
-    BEM = 21,     // BMS及车辆错误报文
-    CEM = 22,     // 充电机错误报文
-
-    MULPRE=23     //多帧的开头和中间部分
-} PGNType;
 
 
 static char *dest_addr(char *message)
@@ -196,7 +151,7 @@ static int ismul_frame(char *id)
     return 0;
 }
 
-//返回某键值在json对象中的序号，如果没有，则返回-1
+//返回某键值在json对象中的序号，如果没有，则返回0,参数传入出错返回-1
 static int get_key_index(cJSON *json, const char *key) {
     if (json == NULL || key == NULL) {
         return -1;
@@ -211,14 +166,14 @@ static int get_key_index(cJSON *json, const char *key) {
         index++;
     }
 
-    return -1;
+    return 0;
 }
 
 // can报文解析函数，将解析完的待输出数据存储在全局数组outline中;can_input为输入的can报文数据，pgn_json为PGN的json信息
 int can_parse(char *can_input, cJSON *pgn_json)
 {
     line_num++;
-    PGNType pgn_type = 0;
+    int pgn_type = 0;
 
     // 去除每行末尾的换行符
     can_input[strcspn(can_input, "\n")] = 0;
