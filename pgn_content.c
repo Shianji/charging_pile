@@ -16,16 +16,6 @@ void reverse_bytes(unsigned char *byte_array, int byte_array_len) {
     }
 }
 
-unsigned char* hex_to_bytes1(const char* hex, size_t* out_len) {
-    size_t len = strlen(hex);
-    unsigned char* bytes = (unsigned char*)malloc(len / 2);
-    for (size_t i = 0; i < len; i += 2) {
-        sscanf(hex + i, "%2hhx", &bytes[i / 2]);
-    }
-    *out_len = len / 2;
-    return bytes;
-}
-
 // 将十六进制字符串转换为整数
 int hex_to_int(const char* hex) {
     int value;
@@ -43,36 +33,68 @@ unsigned char* hex_to_bytes(const char* hex) {
     return bytes;
 }
 
-char* bytes_to_bin(unsigned char* bytes, size_t len) {
-    char* bin = (char*)malloc(len * 8 + 1);
-    bin[0] = '\0';
-    for (size_t i = 0; i < len; i++) {
-        for (int j = 7; j >= 0; j--) {
-            strcat(bin, (bytes[i] & (1 << j)) ? "1" : "0");
-        }
+// 将十六进制字符转换为对应的二进制字符串
+void hexToBin(char hex, char* bin) {
+    switch(hex) {
+        case '0': strcpy(bin, "0000"); break;
+        case '1': strcpy(bin, "0001"); break;
+        case '2': strcpy(bin, "0010"); break;
+        case '3': strcpy(bin, "0011"); break;
+        case '4': strcpy(bin, "0100"); break;
+        case '5': strcpy(bin, "0101"); break;
+        case '6': strcpy(bin, "0110"); break;
+        case '7': strcpy(bin, "0111"); break;
+        case '8': strcpy(bin, "1000"); break;
+        case '9': strcpy(bin, "1001"); break;
+        case 'A': strcpy(bin, "1010"); break;
+        case 'B': strcpy(bin, "1011"); break;
+        case 'C': strcpy(bin, "1100"); break;
+        case 'D': strcpy(bin, "1101"); break;
+        case 'E': strcpy(bin, "1110"); break;
+        case 'F': strcpy(bin, "1111"); break;
+        default: strcpy(bin, ""); break; 
     }
-    return bin;
 }
 
-char* zfill(char* bin, size_t total_bits) {
-    size_t bin_len = strlen(bin);
-    if (bin_len < total_bits) {
-        char* filled_bin = (char*)malloc(total_bits + 1);
-        memset(filled_bin, '0', total_bits - bin_len);
-        filled_bin[total_bits - bin_len] = '\0';
-        strcat(filled_bin, bin);
-        return filled_bin;
+// 将整个十六进制字符串转换为二进制字符串
+void hexStringToBinString(const char* hexStr, char* binStr) {
+    char bin[256]; 
+    binStr[0] = '\0'; 
+
+    for (int i = 0; i < strlen(hexStr); i++) {
+        hexToBin(hexStr[i], bin);
+        strcat(binStr, bin);
     }
-    return bin;
 }
 
-// 计算起始位
-int get_start_bit(start_byte_or_bit) {
-    char* start_bit_str = strchr(start_byte_or_bit, '.');
-    if (start_bit_str != NULL) {
-        return atoi(start_bit_str + 1) - 1;
+// 将二进制字符串左边补0到指定长度
+void padLeftWithZeros(char* binStr, int totalLength) {
+    int len = strlen(binStr);
+    if (len < totalLength) {
+        // 创建一个新的字符串，包含足够的空间来存储填充后的字符串
+        char* paddedStr = (char*)malloc(totalLength + 1);
+        // 将原字符串移到新位置
+        memmove(paddedStr + (totalLength - len), binStr, len + 1);
+        // 用'0'填充左侧
+        memset(paddedStr, '0', totalLength - len);
+        // 将结果复制回原字符串
+        strcpy(binStr, paddedStr);
+        // 释放临时字符串的内存
+        free(paddedStr);
     }
-    return 0;
+}
+
+// 从浮点数中提取小数部分，转换为整数，然后减去 1
+int getDecimalPart(double number) {
+    char value_str[50];  
+    sprintf(value_str, "%.1f", number);  
+    char *decimal_part_str = strchr(value_str, '.');  // 查找小数点
+    if (decimal_part_str != NULL) {
+        decimal_part_str++;  // 跳过小数点
+        int decimal_part_int = atoi(decimal_part_str);  
+        return decimal_part_int - 1;  
+    }
+    return -1;  
 }
 
 void pgn_content(const char *p, const char *cd) {
@@ -107,8 +129,6 @@ void pgn_content(const char *p, const char *cd) {
             struct json_object *start_byte_or_bit_obj = json_object_object_get(sl, "起始字节或位");
             int start_byte_or_bit = json_object_get_int(start_byte_or_bit_obj);
             int length = json_object_get_int(json_object_object_get(sl, "长度"));
-            printf("%d", start_byte_or_bit);
-
             if (json_object_is_type(start_byte_or_bit_obj, json_type_int)) {
                 char d[256];
 
@@ -153,6 +173,9 @@ void pgn_content(const char *p, const char *cd) {
                 }
             } else {
                 // 处理非整数起始字节或位
+                struct json_object *start_byte_or_bit_obj = json_object_object_get(sl, "起始字节或位");
+                double start_byte_or_bit = json_object_get_int(start_byte_or_bit_obj);
+                int length = json_object_get_int(json_object_object_get(sl, "长度"));
                 if (!json_object_is_type(start_byte_or_bit_obj, json_type_int)) {
                     double start_byte_or_bit = json_object_get_double(start_byte_or_bit_obj);
                     int n;
@@ -187,33 +210,23 @@ void pgn_content(const char *p, const char *cd) {
                             d[j] = toupper(d[j]);
                         }
                         
+                        char binStr[256]; 
+                        hexStringToBinString(d, binStr);
+                        int fill_zero = 8 * (n - (int)start_byte_or_bit + 1);
+                        // 调用左侧补0方法
+                        padLeftWithZeros(binStr, fill_zero);
+
+                        int sb = getDecimalPart(start_byte_or_bit);
+
                         char db[1024] = "";
+                        strcat(db, binStr); 
 
-                        // 将十六进制字符串转换为字节数组
-                        size_t byte_len = strlen(d);
-                        unsigned char* bytes = hex_to_bytes1(d, &byte_len);
-
-                        // 将字节数组转换为二进制字符串
-                        char* bin = bytes_to_bin(bytes, byte_len);
-
-                        // 计算填充长度并填充二进制字符串
-                        size_t total_bits = 8 * (n - atoi(strtok(strdup(start_byte_or_bit), ".")) + 1);
-                        char* db = zfill(bin, total_bits);
-                        printf("Filled binary data: %s\n", db);
-
-                        // 计算起始位
-                        int sb = get_start_bit(start_byte_or_bit);
-                        printf("Start bit: %d\n", sb);
-
-
-                        char sb_str[16];
-                        snprintf(sb_str, sizeof(sb_str), "%f", start_byte_or_bit);
-                        int sb = atoi(strchr(sb_str, '.') + 1) - 1;
+                        //char sb_str[16];
+                        //snprintf(sb_str, sizeof(sb_str), "%f", start_byte_or_bit);
                         int eb = sb + length + 1;
                         if (sb == 0) {
                             eb--;
                         }
-
                         char section[256];
                         strncpy(section, db + sb, eb - sb);
                         section[eb - sb] = '\0';
@@ -279,7 +292,6 @@ void pgn_content(const char *p, const char *cd) {
                 int end_index = (start_byte_or_bit + length - 1) * 2;
                 // 计算要复制的字符数
                 int num_chars_to_copy = end_index - start_index;
-                printf("%d\n", num_chars_to_copy);
                 // 复制子字符串并确保目标字符串以空字符结尾
                 strncpy(d, cd + start_index, num_chars_to_copy);
                 d[num_chars_to_copy] = '\0';
@@ -300,11 +312,10 @@ void pgn_content(const char *p, const char *cd) {
                     for (int j = 0; j < strlen(d); j++) {
                         d[j] = toupper(d[j]);
                     }
-                   
                     double data_resolution = json_object_get_double(json_object_object_get(sl, "data_resolution"));
                     double offset = json_object_get_double(json_object_object_get(sl, "offset"));
                     double result = data_resolution * strtol(d, NULL, 16) + offset;
-                    //printf("%f\n", data_resolution);
+      
                     if (result < 0) {
                         result = fabs(result);
                     }
@@ -317,15 +328,17 @@ void pgn_content(const char *p, const char *cd) {
                     strcat(c, "；");
                 }
             } else {
+                struct json_object *start_byte_or_bit_obj = json_object_object_get(sl, "起始字节或位");
+                double start_byte_or_bit = json_object_get_int(start_byte_or_bit_obj);
+                int length = json_object_get_int(json_object_object_get(sl, "长度"));
                 if (!json_object_is_type(start_byte_or_bit_obj, json_type_int)) {
                     double start_byte_or_bit = json_object_get_double(start_byte_or_bit_obj);
-                    int length = json_object_get_int(json_object_object_get(sl, "长度"));
                     int n;
                     if (length >= 8) {
                         if (length % 8 == 0) {
                             n = (length / 8) + (int)start_byte_or_bit;
                         } else {
-                            n = (length / 8) + (int)start_byte_or_bit + 1;
+                            n = (length / 8) + (int)start_byte_or_bit;
                         }
                     } else {
                         n = (int)start_byte_or_bit;
@@ -341,34 +354,50 @@ void pgn_content(const char *p, const char *cd) {
                     strncpy(d, cd + start_index, num_chars_to_copy);
                     d[num_chars_to_copy] = '\0';
                     if (strlen(d) > 0) {
-                        // 转换
-                        char db[1024] = "";
+                        // 反转字节转为16进制
+                        // for (int j = 0; j < strlen(d) / 2; j += 2) {
+                        // char temp = d[j];
+                        // d[j] = d[strlen(d) - j - 2];
+                        // d[strlen(d) - j - 2] = temp;
+                        // temp = d[j + 1];
+                        // d[j + 1] = d[strlen(d) - j - 1];
+                        // d[strlen(d) - j - 1] = temp;
+                        // }
 
-                        char sb_str[256];
-                        snprintf(sb_str, sizeof(sb_str), "%f", start_byte_or_bit);
-                        int sb = atoi(strchr(sb_str, '.') + 1) - 1;
+                        // for (int j = 0; j < strlen(d); j++) {
+                        //     d[j] = toupper(d[j]);
+                        // }
+                        
+                        char binStr[256]; 
+                        hexStringToBinString(d, binStr);
+                        int fill_zero = 8 * (n - (int)start_byte_or_bit + 1);
+                        // 调用左侧补0方法
+                        padLeftWithZeros(binStr, fill_zero);
+                        int sb = getDecimalPart(start_byte_or_bit);
+                        char db[1024] = "";
+                        strcat(db, binStr);
                         int eb = sb + length + 1;
                         if (sb == 0) {
-                            eb--;
+                            eb--; // eb = 12
                         }
 
                         char section[256];
                         strncpy(section, db + sb, eb - sb);
                         section[eb - sb] = '\0';
+                        // 计算偏移量
+                        double data_resolution = json_object_get_double(json_object_object_get(sl, "data_resolution"));
+                        double offset = json_object_get_double(json_object_object_get(sl, "offset"));
+                        double result = data_resolution * strtol(section, NULL, 2) + offset;
+                        if (result < 0) {
+                            result = fabs(result);
+                        }
+                        char result_str[128];
+                        snprintf(result_str, sizeof(result_str), "%.2f", result);
+                        strcat(c, json_object_get_string(json_object_object_get(sl, "content")));
+                        strcat(c, result_str);
+                        strcat(c, json_object_get_string(json_object_object_get(sl, "units")));
+                        strcat(c, "；");
                     }
-                    // 计算偏移量
-                    double data_resolution = json_object_get_double(json_object_object_get(sl, "data_resolution"));
-                    double offset = json_object_get_double(json_object_object_get(sl, "offset"));
-                    double result = data_resolution * strtol(d, NULL, 2) + offset;
-                    if (result < 0) {
-                        result = fabs(result);
-                    }
-                    char result_str[128];
-                    snprintf(result_str, sizeof(result_str), "%.2f", result);
-                    strcat(c, json_object_get_string(json_object_object_get(sl, "content")));
-                    strcat(c, result_str);
-                    strcat(c, json_object_get_string(json_object_object_get(sl, "units")));
-                    strcat(c, "；");
                 }
             }
         } else if (strcmp(process_mode, "date") == 0) {
@@ -379,7 +408,6 @@ void pgn_content(const char *p, const char *cd) {
                 char d[256];
                 // 计算起始位置和结束位置
                 int start_index = (start_byte_or_bit - 1) * 2;
-                printf("start_index: %d\n", start_byte_or_bit);
                 int end_index = (start_byte_or_bit + length - 1) * 2;
                 // 计算要复制的字符数
                 int num_chars_to_copy = end_index - start_index;
