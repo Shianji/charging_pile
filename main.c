@@ -16,6 +16,7 @@ int main(int argc,char *argv[]){
 
     while (fgets(line_input, sizeof(line_input), input_file)){
         can_parse(line_input,pgn_json);
+        
         fprintf(output_file, "%s\n", line_output);
     }
 
