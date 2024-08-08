@@ -8,6 +8,7 @@
         "cstdlib": "c",
         "in.h": "c",
         "gbt27930-2015.h": "c",
-        "wait.h": "c"
+        "wait.h": "c",
+        "signal.h": "c"
     }
 }

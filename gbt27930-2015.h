@@ -51,12 +51,14 @@
 
 #define         MULPRE       23          //多帧报文前面的部分
 
-// 定义CAN数据结构
+// 定义CAN解析完的数据结构
 typedef struct
 {
     char can_id[9];    // CAN ID
     char can_data[17]; // CAN数据，最多8个字节，以16进制字符串表示，每个字节占2个字符,加上终止符'\0'
 } CANInfo;
+
+
 
 extern char line_output[1024];
 extern char line_input[1024];
