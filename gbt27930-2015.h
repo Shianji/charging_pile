@@ -18,6 +18,7 @@
 #define MALLOC_ERROR        2
 #define FREAD_ERROR         3
 #define JSONPARSE_ERROR     4
+#define CAN_DATA_LEN        12
 
 
 #define         UNKOWN       0           //非法PGN报文
@@ -61,18 +62,18 @@ typedef struct
 
 
 extern char line_output[1024];
-extern char line_input[1024];
+extern uint8_t line_input[1024];
 extern FILE *output_file;
 extern cJSON *pgn_json;
 extern CANInfo caninfo;
 
 
 
-void init();
+void init(char *name);
 void deinit();
 char *pgn_content(const char *pgn, const char *can_data);
-int can_parse(char *can_input,cJSON *pgn_json);
-
+int can_parse(uint8_t *can_input,cJSON *pgn_json, size_t can_input_len);
+int hex_string_to_int(const char* hex);
 
 
 #endif

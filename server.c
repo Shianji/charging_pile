@@ -1,27 +1,28 @@
 #include <signal.h>
-#include <pthread.h>
-#include "gbt27930-2015.h"
-#include "time.h"
+#include "common.h"
 
 
 #define SERVER_PORT		8888          	//服务器的端口号
 #define NUM_BCHILDREN    11
 
-#define         BFRAME_BHM             " 1826F456#010100"                        //充电机握手报文
-#define         BFRAME_BRM             " 1CECF456#110701FFFF000200"              //BMS和车辆辨识报文    //多帧1
-#define         BFRAME_BCP             " 1CEC56F4#100D0002FF000600"              //动力蓄电池充电参数报文    //多帧1
-#define         BFRAME_BRO_00          " 100956F4#00"                            //车辆充电准备就绪状态报文
-#define         BFRAME_BRO_AA          " 100956F4#AA"                            //车辆充电准备就绪状态报文
-#define         BFRAME_BCL             " 181056F4#A510D80E02"                    //电池充电需求报文
-#define         BFRAME_BCS             " 1CEC56F4#10090002FF001100"              //电池充电总状态报文    //多帧1
-#define         BFRAME_BSM             " 181356F4#1E3606350F0010"                //动力蓄电池状态信息报文
-#define         BFRAME_BST             " 101956F4#40000000"                      //车辆中止充电报文
-#define         BFRAME_BSD             " 181C56F4#4D4D014D013536"                //车辆统计数据报文
 
-int sockfd;//套接字通信接口
+const uint8_t BFRAME_BHM[12]={0X18, 0X27, 0X56, 0XF4, 0XA5, 0X10, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF};                  // 充电机握手报文
+const uint8_t BFRAME_BRM[12]={0X1C, 0XEC, 0X56, 0XF4, 0X10, 0X31, 0X00, 0X07, 0XFF, 0X00, 0X02, 0X00};                  //BMS和车辆辨识报文    //多帧1
+
+const uint8_t BFRAME_BCP[12]={0X1C, 0XEC, 0X56, 0XF4, 0X10, 0X0D, 0X00, 0X02, 0XFF, 0X00, 0X06, 0X00};                  //动力蓄电池充电参数报文    //多帧1
+const uint8_t BFRAME_BRO_00[12]={0X10, 0X09, 0X56, 0XF4, 0X00, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF};               //车辆充电准备就绪状态报文
+const uint8_t BFRAME_BRO_AA[12]={0X10, 0X09, 0X56, 0XF4, 0XAA, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF};               //车辆充电准备就绪状态报文
+const uint8_t BFRAME_BCL[12]={0X18, 0X10, 0X56, 0XF4, 0XA5, 0X10, 0XD8, 0X0E, 0X02, 0XFF, 0XFF, 0XFF};                  //电池充电需求报文
+const uint8_t BFRAME_BCS[12]={0X1C, 0XEC, 0X56, 0XF4, 0X10, 0X09, 0X00, 0X02, 0XFF, 0X00, 0X11, 0X00};                  //电池充电总状态报文    //多帧1
+const uint8_t BFRAME_BSM[12]={0X18, 0X13, 0X56, 0XF4, 0X1E, 0X36, 0X06, 0X35, 0X0F, 0X00, 0X10, 0XFF};                  //动力蓄电池状态信息报文
+const uint8_t BFRAME_BST[12]={0X10, 0X19, 0X56, 0XF4, 0X40, 0X00, 0X00, 0X00, 0XFF, 0XFF, 0XFF, 0XFF};                  //车辆中止充电报文
+const uint8_t BFRAME_BSD[12]={0X18, 0X1C, 0X56, 0XF4, 0X4D, 0X4D, 0X01, 0X4D, 0X01, 0X35, 0X36, 0XFF};                  //车辆统计数据报文
+
+int sockfd, connfd;;//套接字通信接口
 int got_cst=0,got_csd=0,bcan_over=0;
 pthread_t beventThread,bsendThread1,bsendThread2,bsendThread3,bsendThread4;
 timer_t btimerid1, btimerid2,btimerid3;
+thread_send_arg bframe1,bframe2,bframe3,bframe4;
 
 // 定义状态
 typedef enum{
@@ -33,7 +34,7 @@ typedef enum{
     BSTATE_PARAMETER_ADAPT,                             // 充电机参数适配
     BSTATE_CYCLE_SENT_BRO_00,                           // 周期发送BCP_00报文      
     BSTATE_CYCLE_SENT_BRO_AA,                           // 周期发送BCP_AA报文 
-    BSTATE_RCV_CRO,                                     //收到CRO
+    BSTATE_RCV_CRO,                                     // 收到CRO
     BSTATE_CYCLE_SENT_BCL_BCS,                          // 周期发送BCL BCS报文 
     BSTATE_CYCLE_SENT_BSM,                              // 周期发送BSM报文
     BSTATE_CYCLE_SENT_BST,                              // 周期发送BST报文
@@ -56,20 +57,15 @@ typedef enum {
     BEVENT_RECV_CST,                                     // 已经收到CST报文,自首次发送BST报文起5S，没收到CST触发超时
     BEVENT_RECV_CSD,                                     // 已经收到CSD报文,自首次发送BST报文起10S，没收到CSD触发超时
     BEVENT_EXIT,                                         // 退出事件
-} Event;
+} BMS_Event;
 
+//BMS状态机结构
 typedef struct {
     BMS_STATE currentState;
-    Event currentEvent;
-} StateMachine;
+    BMS_Event currentEvent;
+} BStateMachine;
 
-StateMachine bfsm;
-
-typedef struct {
-    int sockfd;
-    char *frame;
-    int cycletime_ms;
-} thread_send_arg;
+BStateMachine bfsm;
 
 void timer_handler(int signum) {
     switch(bfsm.currentState){
@@ -110,45 +106,8 @@ void timer_handler(int signum) {
     }
 }
 
-//周期发送帧数据函数，cycletime_ms为循环发送周期，单位为毫秒，传入0表示只发送一次int sockfd, char *frame,int cycletime_ms
-static void *cycle_sent_frame(void *arg){
-    thread_send_arg *parameter=(thread_send_arg *)arg;
-    int ret, framelen=strlen(parameter->frame);
-    unsigned int cycletime_us = parameter->cycletime_ms * 1000;
-    if(parameter->cycletime_ms==0){
-        ret = send(sockfd, parameter->frame, framelen, 0);
-        if(ret != framelen){
-            printf("数据发送错误， 需发送字节：%d,实际发送字节：%d ",framelen, ret);
-        }
-    }else{
-        while(1){
-        ret = send(sockfd, parameter->frame, framelen, 0);
-        if(ret != framelen){
-            printf("数据发送错误， 需发送字节：%d,实际发送字节：%d ",framelen, ret);
-        }
-        // 等待指定的周期时间（以微秒为单位）
-        usleep(cycletime_us);
-        }
-    }
-}
-
-static void kill_thread(pthread_t thread){
-    int ret;
-    ret = pthread_cancel(thread);
-    if(ret!=0 && ret!=ESRCH){//判断线程是否存在,或是否成功杀死
-        perror("pthread_cancel");
-        exit(EXIT_FAILURE);
-    }
-    // 等待线程结束
-    ret = pthread_join(thread, NULL);
-    if (ret!=0 && ret!=ESRCH) {
-        perror("pthread_join");
-        exit(EXIT_FAILURE);
-    }
-}
-
 //充电准备子线程
-void* charge_prepare(void* arg){
+static void* charge_prepare(void* arg){
     printf("正在进行充电准备工作\n");
     sleep(30);//模拟充电准备，睡30s
     printf("充电机准备就绪\n");
@@ -161,10 +120,12 @@ static void handle_charging_init(){
 }
 
 static void handle_sent_bhm(){
+    printf("收到CHM报文\n");
     printf("周期发送BHM报文\n");
     bfsm.currentState = BSTATE_CYCLE_SENT_BHM;
-    thread_send_arg chm_frame1 = {sockfd,BFRAME_BHM,250};
-    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &chm_frame1) != 0) {//以250ms为周期发送BHM报文
+    bframe1.frame=BFRAME_BHM;
+    bframe1.cycletime_ms=250;
+    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &bframe1) != 0) {//以250ms为周期发送BHM报文
         perror("pthread_create in cycle send BHM");
         exit(EXIT_FAILURE);
     }
@@ -173,12 +134,14 @@ static void handle_sent_bhm(){
 }  
 
 static void handle_sent_brm(){
+    printf("收到CRM(00)报文\n");
     printf("停止发送BHM报文\n");
     kill_thread(bsendThread1);
     printf("周期发送BRM报文\n");
     bfsm.currentState = BSTATE_CYCLE_SENT_BRM;
-    thread_send_arg chm_frame1={sockfd,BFRAME_BRM,250};
-    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &chm_frame1) != 0) {//以250ms为周期发送BRM报文
+    bframe1.frame=BFRAME_BRM;
+    bframe1.cycletime_ms=250;
+    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &bframe1) != 0) {//以250ms为周期发送BRM报文
         perror("pthread_create in cycle send BRM");
         exit(EXIT_FAILURE);
     }
@@ -187,12 +150,14 @@ static void handle_sent_brm(){
 }
 
 static void  handle_sent_bcp(){
+    printf("收到CRM(AA)报文\n");
     printf("停止发送BRM报文\n");
     kill_thread(bsendThread1);
     printf("周期发送BCP报文\n");
     bfsm.currentState = BSTATE_CYCLE_SENT_BCP;
-    thread_send_arg chm_frame1={sockfd,BFRAME_BCP,250};
-    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &chm_frame1) != 0) {//以250ms为周期发送CRM(00)
+    bframe1.frame=BFRAME_BCP;
+    bframe1.cycletime_ms=250;
+    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &bframe1) != 0) {//以250ms为周期发送CRM(00)
         perror("pthread_create in cycle send BCP");
         exit(EXIT_FAILURE);
     }
@@ -201,6 +166,7 @@ static void  handle_sent_bcp(){
 }
 
 static void hadle_parameter_check(){
+    printf("收到CML报文,进行时间同步处理\n");
     printf("时间同步处理完成\n");
     bfsm.currentState = BSTATE_PARAMETER_ADAPT;
     printf("充电机参数适配\n");
@@ -212,8 +178,9 @@ static void handle_sent_bro_00(){
     kill_thread(bsendThread1);
     printf("周期发送BRO(00)报文\n");
     bfsm.currentState = BSTATE_CYCLE_SENT_BRO_00;
-    thread_send_arg chm_frame1={sockfd,BFRAME_BRO_00,250};
-    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &chm_frame1) != 0) {//以250ms为周期发送BRO_00报文
+    bframe1.frame=BFRAME_BRO_00;
+    bframe1.cycletime_ms=250;
+    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &bframe1) != 0) {//以250ms为周期发送BRO_00报文
         perror("pthread_create in cycle send BRO_00");
         exit(EXIT_FAILURE);
     }
@@ -224,13 +191,14 @@ static void handle_sent_bro_00(){
 }
 
 static void handle_sent_bro_aa(){
-    printf("停止发送BRO(AA)报文\n");
+    printf("停止发送BRO(00)报文\n");
     kill_thread(bsendThread1);
     kill_thread(bsendThread2);//回收充电准备子线程
-    printf("周期发送BRO(00)报文\n");
+    printf("周期发送BRO(AA)报文\n");
     bfsm.currentState = BSTATE_CYCLE_SENT_BRO_AA;
-    thread_send_arg chm_frame1={sockfd,BFRAME_BRO_AA,250};
-    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &chm_frame1) != 0) {//以250ms为周期发送BRO_AA报文
+    bframe1.frame=BFRAME_BRO_AA;
+    bframe1.cycletime_ms=250;
+    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &bframe1) != 0) {//以250ms为周期发送BRO_AA报文
         perror("pthread_create in cycle send BRO_AA");
         exit(EXIT_FAILURE);
     }
@@ -241,27 +209,32 @@ static void handle_sent_bro_aa(){
 }
 
 static void handle_sent_bcl_bcs(){
+    printf("收到CRO(AA)报文\n");
     printf("停止发送BRO报文\n");
     kill_thread(bsendThread1);
     printf("周期发送BCL报文、BCS报文\n");
     bfsm.currentState = BSTATE_CYCLE_SENT_BCL_BCS;
-    thread_send_arg chm_frame1={sockfd, BFRAME_BCL, 250};
-    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &chm_frame1) != 0) {//以250ms为周期发送BCL报文
+    bframe1.frame=BFRAME_BCL;
+    bframe1.cycletime_ms=250;
+    if (pthread_create(&bsendThread1, NULL, cycle_sent_frame, &bframe1) != 0) {//以250ms为周期发送BCL报文
         perror("pthread_create in cycle send BCL");
         exit(EXIT_FAILURE);
     }
-    thread_send_arg chm_frame2={sockfd, BFRAME_BCS, 250};
-    if (pthread_create(&bsendThread2, NULL, cycle_sent_frame, &chm_frame2) != 0) {//以250ms为周期发送BCS
+    bframe2.frame=BFRAME_BCS;
+    bframe2.cycletime_ms=250;
+    if (pthread_create(&bsendThread2, NULL, cycle_sent_frame, &bframe2) != 0) {//以250ms为周期发送BCS
         perror("pthread_create in cycle send BCS");
         exit(EXIT_FAILURE);
     }
 }
 
 static void handle_sent_bsm(){
+    printf("收到CCS报文\n");
     printf("周期发送BSM报文\n");
     bfsm.currentState = BSTATE_CYCLE_SENT_BSM;
-    thread_send_arg chm_frame1={sockfd,BFRAME_BSM,250};
-    if (pthread_create(&bsendThread3, NULL, cycle_sent_frame, &chm_frame1) != 0) {//以250ms为周期发送BSM报文
+    bframe3.frame=BFRAME_BSM;
+    bframe3.cycletime_ms=250;
+    if (pthread_create(&bsendThread3, NULL, cycle_sent_frame, &bframe3) != 0) {//以250ms为周期发送BSM报文
         perror("pthread_create in cycle send BSM");
         exit(EXIT_FAILURE);
     }
@@ -270,8 +243,9 @@ static void handle_sent_bsm(){
 static void handle_sent_bst(){
     printf("周期发送BST报文\n");
     bfsm.currentState = BSTATE_CYCLE_SENT_BST;
-    thread_send_arg chm_frame1={sockfd,BFRAME_BST,250};
-    if (pthread_create(&bsendThread4, NULL, cycle_sent_frame, &chm_frame1) != 0) {//以250ms为周期发送BSM报文
+    bframe4.frame=BFRAME_BST;
+    bframe4.cycletime_ms=250;
+    if (pthread_create(&bsendThread4, NULL, cycle_sent_frame, &bframe4) != 0) {//以250ms为周期发送BSM报文
         perror("pthread_create in cycle send BST");
         exit(EXIT_FAILURE);
     }
@@ -287,14 +261,15 @@ static void handle_sent_bsd(){
     printf("停止发送BST报文\n");
     kill_thread(bsendThread4);
     printf("周期发送BSD报文\n");
-    thread_send_arg chm_frame1={sockfd,BFRAME_BSD,250};
-    if (pthread_create(&bsendThread4, NULL, cycle_sent_frame, &chm_frame1) != 0) {//以250ms为周期发送BSM报文
+    bframe4.frame=BFRAME_BSD;
+    bframe4.cycletime_ms=250;
+    if (pthread_create(&bsendThread4, NULL, cycle_sent_frame, &bframe4) != 0) {//以250ms为周期发送BSM报文
         perror("pthread_create in cycle send BSD");
         exit(EXIT_FAILURE);
     }
 }
 
-void switchState(Event event) {
+void switchState(BMS_Event event) {
     switch (event) {
         case BEVENT_START:
             if(bfsm.currentState == BSTATE_INIT){
@@ -335,6 +310,7 @@ void switchState(Event event) {
             break;
         case BEVENT_RECV_CRO:
             if(bfsm.currentState == BSTATE_CYCLE_SENT_BRO_AA){
+                printf("收到CRO报文\n");
                 cancel_timer(&btimerid1);//5s内收到了CRO,所以关闭定时器
                 bfsm.currentState == BSTATE_RCV_CRO;
             }
@@ -374,7 +350,6 @@ void switchState(Event event) {
                 bfsm.currentEvent==BEVENT_EXIT;
             }
             break;
-
         case BEVENT_EXIT:
             kill_thread(bsendThread4);
             kill_thread(bsendThread3);
@@ -390,16 +365,26 @@ void switchState(Event event) {
 
 //监听数据帧的子线程
 void* eventListener(void* arg) {
-    while (1) {
     int recvbytes=0,frame_type;
+    while (1) {
     memset(line_input,0,sizeof(line_input));
-    recvbytes = recv(sockfd, line_input, sizeof(line_input) - 1, 0);
+    recvbytes = recv(connfd, line_input, sizeof(line_input) - 1, 0);
     if (recvbytes == -1) {
         perror("帧数据接收出错\n");
-        close(sockfd);
+        close(connfd);
         exit(EXIT_FAILURE);
+    }else if(recvbytes==0){
+        printf("charging端断开连接，通信结束\n");
+        exit(0);
     }else{
-        frame_type=can_parse(line_input,pgn_json);
+        //调试用
+        // printf("接受到%d字节\n",recvbytes);
+        // for(int i=0;i<recvbytes;i++){
+        //     printf("%02x",line_input[i]);
+        // }
+        // printf("\n");
+
+        frame_type=can_parse(line_input,pgn_json,CAN_DATA_LEN);
         fprintf(output_file, "%s\n", line_output);
         switch(frame_type){
             case CHM:
@@ -409,11 +394,11 @@ void* eventListener(void* arg) {
                 break;
             case CRM:
                 if(bfsm.currentState == BSTATE_CYCLE_SENT_BHM){
-                    if(1){//判断报文是否是00
+                    if(strncmp(caninfo.can_data,"00",2)==0){//判断报文是否是00
                         bfsm.currentEvent= BEVENT_RECV_CRM_00;
                     }
                 }else if(bfsm.currentState == BSTATE_CYCLE_SENT_BRM){
-                    if(1){//判断报文是否是AA
+                    if(strncmp(caninfo.can_data,"AA",2)==0){//判断报文是否是AA
                         bfsm.currentEvent= BEVENT_RECV_CRM_AA;
                     }
                 }
@@ -427,7 +412,7 @@ void* eventListener(void* arg) {
                 if(bfsm.currentState == BSTATE_CYCLE_SENT_BRO_AA){
                     bfsm.currentEvent = BEVENT_RECV_CRO;
                 }else if(bfsm.currentState == BSTATE_RCV_CRO){
-                    if(1){//判断是不是AA
+                    if(strncmp(caninfo.can_data,"AA",2)==0){//判断是不是AA
                         bfsm.currentEvent = BEVENT_RECV_CRO_AA;
                     }
                 }
@@ -447,8 +432,11 @@ void* eventListener(void* arg) {
                     bfsm.currentEvent = BEVENT_RECV_CSD;
                 }
                 break;
+            case MULPRE:
+
+                break; 
             default:
-                printf("接收到未知帧数据\n");
+                printf("接收到预期之外的帧数据,帧代号为：%d\n",frame_type);
                 break;            
         }
     }
@@ -460,19 +448,21 @@ int main(void){
     struct sockaddr_in server_addr = {0};
     struct sockaddr_in client_addr = {0};
     char ip_str[20] = {0};
-    int sockfd, connfd;
     int addrlen = sizeof(client_addr);
     char recvbuf[512];
     int ret,type,over=0,charge_over=0,bover;
     time_t first_sent_BRO_AA_time;
- 
+
+    //初始化
+    init("BMS");
+    
     // 打开套接字，得到套接字描述符
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (0 > sockfd) {
         perror("socket error");
         exit(EXIT_FAILURE);
     }
- 
+    
     // 将套接字与指定端口号进行绑定
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -492,7 +482,7 @@ int main(void){
         close(sockfd);
         exit(EXIT_FAILURE);
     }
- 
+    
     // 阻塞等待客户端连接 
     connfd = accept(sockfd, (struct sockaddr *)&client_addr, &addrlen);
     if (0 > connfd) {
@@ -505,6 +495,11 @@ int main(void){
     inet_ntop(AF_INET, &client_addr.sin_addr.s_addr, ip_str, sizeof(ip_str));
     printf("客户端主机的IP地址: %s\n", ip_str);
     printf("客户端进程的端口号: %d\n", client_addr.sin_port);
+
+    bframe1.sockfd=connfd;
+    bframe2.sockfd=connfd;
+    bframe3.sockfd=connfd;
+    bframe4.sockfd=connfd;
 
     // 初始化状态机
     bfsm.currentState = BSTATE_INIT;
@@ -520,6 +515,7 @@ int main(void){
         }
     }
     close(sockfd);
+    deinit();
     return 0;
 }
 

@@ -11,7 +11,7 @@ char info[256] = {0};
 char muldata[256] = {0},*mulptr=muldata;//存储多帧数据
 const char *mul_frame_id[] = {"1CEC56F4", "1CECF456", "1CEB56F4", "1CECF456"};
 char data_parse[1024] = {0};
-char line_input[1024] = {0};
+uint8_t line_input[1024] = {0};
 char line_output[1024] = {0};
 CANInfo caninfo;
 int line_num = 0;
@@ -19,6 +19,108 @@ char output_filename[256];
 FILE *output_file;
 cJSON *pgn_json;
 
+// 反转字节数组
+static void reverse_bytes(unsigned char *byte_array, int byte_array_len) {
+    for (int i = 0; i < byte_array_len / 2; i++) {
+        unsigned char temp = byte_array[i];
+        byte_array[i] = byte_array[byte_array_len - 1 - i];
+        byte_array[byte_array_len - 1 - i] = temp;
+    }
+}
+
+// 将十六进制字符串转换为整数
+int hex_string_to_int(const char* hex) {
+    int value;
+    sscanf(hex, "%x", &value);
+    return value;
+}
+
+// 将十六进制字符串转换为字节数组
+static unsigned char* hex_string_to_bytes(const char* hex) {
+    size_t len = strlen(hex);
+    unsigned char* bytes = (unsigned char*)malloc(len / 2);
+    for (size_t i = 0; i < len; i += 2) {
+        sscanf(hex + i, "%2hhx", &bytes[i / 2]);
+    }
+    return bytes;
+}
+
+// 将字节数组转换为十六进制字符串
+static void bytes_to_hex_string(const uint8_t *data, char *string,int data_len) {
+    // 每个字节对应2个字符的十六进制表示，再加上1个终止符
+    size_t str_len = data_len * 2 + 1;
+    
+    for (size_t i = 0; i < data_len; i++) {
+        snprintf(&string[i * 2], 3, "%02X", data[i]);
+    }
+
+    return;
+}
+
+
+// 将十六进制字符转换为对应的二进制字符串
+static void hexToBin(char hex, char* bin) {
+    switch(hex) {
+        case '0': strcpy(bin, "0000"); break;
+        case '1': strcpy(bin, "0001"); break;
+        case '2': strcpy(bin, "0010"); break;
+        case '3': strcpy(bin, "0011"); break;
+        case '4': strcpy(bin, "0100"); break;
+        case '5': strcpy(bin, "0101"); break;
+        case '6': strcpy(bin, "0110"); break;
+        case '7': strcpy(bin, "0111"); break;
+        case '8': strcpy(bin, "1000"); break;
+        case '9': strcpy(bin, "1001"); break;
+        case 'A': strcpy(bin, "1010"); break;
+        case 'B': strcpy(bin, "1011"); break;
+        case 'C': strcpy(bin, "1100"); break;
+        case 'D': strcpy(bin, "1101"); break;
+        case 'E': strcpy(bin, "1110"); break;
+        case 'F': strcpy(bin, "1111"); break;
+        default: strcpy(bin, ""); break; 
+    }
+}
+
+// 将整个十六进制字符串转换为二进制字符串
+static void hexStringToBinString(const char* hexStr, char* binStr) {
+    char bin[256]; 
+    binStr[0] = '\0'; 
+
+    for (int i = 0; i < strlen(hexStr); i++) {
+        hexToBin(hexStr[i], bin);
+        strcat(binStr, bin);
+    }
+}
+
+// 将二进制字符串左边补0到指定长度
+static void padLeftWithZeros(char* binStr, int totalLength) {
+    int len = strlen(binStr);
+    if (len < totalLength) {
+        // 创建一个新的字符串，包含足够的空间来存储填充后的字符串
+        char* paddedStr = (char*)malloc(totalLength + 1);
+        // 将原字符串移到新位置
+        memmove(paddedStr + (totalLength - len), binStr, len + 1);
+        // 用'0'填充左侧
+        memset(paddedStr, '0', totalLength - len);
+        // 将结果复制回原字符串
+        strcpy(binStr, paddedStr);
+        // 释放临时字符串的内存
+        free(paddedStr);
+    }
+}
+
+// 从浮点数中提取小数部分，转换为整数，然后减去 1
+static int getDecimalPart(double number) {
+    char value_str[50];  
+    sprintf(value_str, "%.1f", number);  
+    char *decimal_part_str = strchr(value_str, '.');  // 查找小数点
+    if (decimal_part_str != NULL) {
+        decimal_part_str++;  // 跳过小数点
+        int decimal_part_int = atoi(decimal_part_str);  
+        return decimal_part_int - 1;  
+    }
+    return -1;  
+}
 
 static char *dest_addr(char *message)
 {
@@ -80,31 +182,18 @@ static int get_pgn(char *message)
 }
 
 // 提取can_id和can_data
-static CANInfo format_data(const char *line)
+static CANInfo format_data(const uint8_t *line,int len)
 {
     CANInfo result;
-    const char *p_id = strrchr(line, ' ');  // 查找最后一个空格
-    const char *p_data = strchr(line, '#'); // 查找'#'字符
-
-    if (p_id && p_data && p_data > p_id)
-    {
-        memset(result.can_id,0,sizeof(result.can_id));
-        // 提取CAN ID
-        int cid_len = p_data - p_id - 1;
-        strncpy(result.can_id, p_id + 1, cid_len);
-        result.can_id[cid_len] = '\0'; // 添加字符串终止符
-
-        memset(result.can_data,0,sizeof(result.can_id));
-        // 提取CAN数据
-        int cdata_len = strlen(line) - (p_data - line + 1);
-        strncpy(result.can_data, p_data + 1, cdata_len);
-        result.can_data[cdata_len] = '\0'; // 添加字符串终止符
+    if(len!=12){
+        printf("can数据长度出错，应为4字节帧头加8字节数据，实际输入%d字节数据\n",len);
     }
-    else
-    {
-        strcpy(result.can_id, "");
-        strcpy(result.can_data, "");
-    }
+    // 提取CAN ID
+    memset(result.can_id,0,sizeof(result.can_id));
+    bytes_to_hex_string(line,result.can_id,4);
+    // 提取CAN数据
+    memset(result.can_data,0,sizeof(result.can_id));
+    bytes_to_hex_string(line+4,result.can_data,8);
 
     return result;
 }
@@ -171,95 +260,6 @@ static int get_key_index(cJSON *json, const char *key) {
     return 0;
 }
 
-// 反转字节数组
-static void reverse_bytes(unsigned char *byte_array, int byte_array_len) {
-    for (int i = 0; i < byte_array_len / 2; i++) {
-        unsigned char temp = byte_array[i];
-        byte_array[i] = byte_array[byte_array_len - 1 - i];
-        byte_array[byte_array_len - 1 - i] = temp;
-    }
-}
-
-// 将十六进制字符串转换为整数
-static int hex_to_int(const char* hex) {
-    int value;
-    sscanf(hex, "%x", &value);
-    return value;
-}
-
-// 将十六进制字符串转换为字节数组
-static unsigned char* hex_to_bytes(const char* hex) {
-    size_t len = strlen(hex);
-    unsigned char* bytes = (unsigned char*)malloc(len / 2);
-    for (size_t i = 0; i < len; i += 2) {
-        sscanf(hex + i, "%2hhx", &bytes[i / 2]);
-    }
-    return bytes;
-}
-
-// 将十六进制字符转换为对应的二进制字符串
-static void hexToBin(char hex, char* bin) {
-    switch(hex) {
-        case '0': strcpy(bin, "0000"); break;
-        case '1': strcpy(bin, "0001"); break;
-        case '2': strcpy(bin, "0010"); break;
-        case '3': strcpy(bin, "0011"); break;
-        case '4': strcpy(bin, "0100"); break;
-        case '5': strcpy(bin, "0101"); break;
-        case '6': strcpy(bin, "0110"); break;
-        case '7': strcpy(bin, "0111"); break;
-        case '8': strcpy(bin, "1000"); break;
-        case '9': strcpy(bin, "1001"); break;
-        case 'A': strcpy(bin, "1010"); break;
-        case 'B': strcpy(bin, "1011"); break;
-        case 'C': strcpy(bin, "1100"); break;
-        case 'D': strcpy(bin, "1101"); break;
-        case 'E': strcpy(bin, "1110"); break;
-        case 'F': strcpy(bin, "1111"); break;
-        default: strcpy(bin, ""); break; 
-    }
-}
-
-// 将整个十六进制字符串转换为二进制字符串
-static void hexStringToBinString(const char* hexStr, char* binStr) {
-    char bin[256]; 
-    binStr[0] = '\0'; 
-
-    for (int i = 0; i < strlen(hexStr); i++) {
-        hexToBin(hexStr[i], bin);
-        strcat(binStr, bin);
-    }
-}
-
-// 将二进制字符串左边补0到指定长度
-static void padLeftWithZeros(char* binStr, int totalLength) {
-    int len = strlen(binStr);
-    if (len < totalLength) {
-        // 创建一个新的字符串，包含足够的空间来存储填充后的字符串
-        char* paddedStr = (char*)malloc(totalLength + 1);
-        // 将原字符串移到新位置
-        memmove(paddedStr + (totalLength - len), binStr, len + 1);
-        // 用'0'填充左侧
-        memset(paddedStr, '0', totalLength - len);
-        // 将结果复制回原字符串
-        strcpy(binStr, paddedStr);
-        // 释放临时字符串的内存
-        free(paddedStr);
-    }
-}
-
-// 从浮点数中提取小数部分，转换为整数，然后减去 1
-static int getDecimalPart(double number) {
-    char value_str[50];  
-    sprintf(value_str, "%.1f", number);  
-    char *decimal_part_str = strchr(value_str, '.');  // 查找小数点
-    if (decimal_part_str != NULL) {
-        decimal_part_str++;  // 跳过小数点
-        int decimal_part_int = atoi(decimal_part_str);  
-        return decimal_part_int - 1;  
-    }
-    return -1;  
-}
 
 char *pgn_content(const char *p, const char *cd) {
     memset(data_parse, 0, sizeof(data_parse));
@@ -562,19 +562,19 @@ char *pgn_content(const char *p, const char *cd) {
                         char year_hex[3];
                         strncpy(year_hex, d, 2);
                         year_hex[2] = '\0';  // 添加字符串结束符
-                        int year = hex_to_int(year_hex) + 1985;
+                        int year = hex_string_to_int(year_hex) + 1985;
                         
                         // 提取月份
                         char month_hex[3];
                         strncpy(month_hex, d + 2, 2);
                         month_hex[2] = '\0';  
-                        int month = hex_to_int(month_hex);
+                        int month = hex_string_to_int(month_hex);
 
                         // 提取日期
                         char day_hex[3];
                         strncpy(day_hex, d + 4, 2);
                         day_hex[2] = '\0';  
-                        int day = hex_to_int(day_hex);
+                        int day = hex_string_to_int(day_hex);
                         char date_str[128];
                         snprintf(date_str, sizeof(date_str), "%d年%d月%d日", year, month, day);
                         strcat(data_parse, json_object_get_string(json_object_object_get(sl, "content")));
@@ -585,23 +585,23 @@ char *pgn_content(const char *p, const char *cd) {
                         char hex_substr[5];
                         strncpy(hex_substr, d + 4, 4);
                         hex_substr[4] = '\0';
-                        unsigned char* bytes = hex_to_bytes(hex_substr);    
+                        unsigned char* bytes = hex_string_to_bytes(hex_substr);    
                         reverse_bytes(bytes, 2);
                         char reversed_hex[5];
                         snprintf(reversed_hex, 5, "%02X%02X", bytes[0], bytes[1]);
-                        int year = hex_to_int(reversed_hex);
+                        int year = hex_string_to_int(reversed_hex);
 
                         // 提取年份
                         char month_hex[3];
                         strncpy(month_hex, d + 2, 2);
                         month_hex[2] = '\0';  
-                        int month = hex_to_int(month_hex);
+                        int month = hex_string_to_int(month_hex);
                         
                         // 提取日期
                         char day_hex[3];
                         strncpy(day_hex, d, 2);
                         day_hex[2] = '\0';  
-                        int day = hex_to_int(day_hex);
+                        int day = hex_string_to_int(day_hex);
 
                         char date_str[128];
                         snprintf(date_str, sizeof(date_str), "%d年%d月%d日", year, month, day);
@@ -613,34 +613,34 @@ char *pgn_content(const char *p, const char *cd) {
                         char hex_substr[5];
                         strncpy(hex_substr, d + 10, 4);
                         hex_substr[4] = '\0';
-                        unsigned char* bytes = hex_to_bytes(hex_substr);    
+                        unsigned char* bytes = hex_string_to_bytes(hex_substr);    
                         reverse_bytes(bytes, 2);
                         char reversed_hex[5];
                         snprintf(reversed_hex, 5, "%02X%02X", bytes[0], bytes[1]);
 
-                        int year = hex_to_int(reversed_hex);
+                        int year = hex_string_to_int(reversed_hex);
 
                         char month_hex[3], day_hex[3], hour_hex[3], minute_hex[3], second_hex[3];
 
                         strncpy(month_hex, d + 8, 2);
                         month_hex[2] = '\0';
-                        int month = hex_to_int(month_hex);
+                        int month = hex_string_to_int(month_hex);
 
                         strncpy(day_hex, d + 6, 2);
                         day_hex[2] = '\0';
-                        int day = hex_to_int(day_hex);
+                        int day = hex_string_to_int(day_hex);
 
                         strncpy(hour_hex, d + 4, 2);
                         hour_hex[2] = '\0';
-                        int hour = hex_to_int(hour_hex);
+                        int hour = hex_string_to_int(hour_hex);
 
                         strncpy(minute_hex, d + 2, 2);
                         minute_hex[2] = '\0';
-                        int minute = hex_to_int(minute_hex);
+                        int minute = hex_string_to_int(minute_hex);
 
                         strncpy(second_hex, d, 2);
                         second_hex[2] = '\0';
-                        int second = hex_to_int(second_hex);
+                        int second = hex_string_to_int(second_hex);
 
                         char date_str[128];
                         snprintf(date_str, sizeof(date_str), "%d年%d月%d日%d时%d分%d秒", year, month, day, hour, minute, second);
@@ -679,16 +679,16 @@ char *pgn_content(const char *p, const char *cd) {
     return data_parse;
 }
 
-// can报文解析函数，将解析完的待输出数据存储在全局数组outline中;can_input为输入的can报文数据，pgn_json为PGN的json信息
-int can_parse(char *can_input, cJSON *pgn_json)
+int can_parse(uint8_t *can_input,cJSON *pgn_json, size_t can_input_len)
 {
     line_num++;
     int pgn_type = 0;
 
-    // 去除每行末尾的换行符
-    can_input[strcspn(can_input, "\n")] = 0;
+    caninfo = format_data(can_input,can_input_len);
 
-    caninfo = format_data(can_input);
+    // printf("帧id是：%s    ",caninfo.can_id);
+    // printf("帧data是：%s\n",caninfo.can_data);
+
     int can_data_len = ((strlen(caninfo.can_data)) / 2); // 获取字符串长度
     get_pgn(caninfo.can_id);
     char *dest = dest_addr(&caninfo.can_id[4]);
@@ -726,7 +726,7 @@ int can_parse(char *can_input, cJSON *pgn_json)
             frame_num = (int)(strtol(num, NULL, 16));
             strncpy(mul_pgn, pgn, sizeof(pgn));
             sprintf(ptr, "多帧发送请求帧 总字节数为%d 需要发送的总帧数为%d", byte_num, frame_num);
-            pgn_type=MULPRE;
+            pgn_type=get_key_index(pgn_json, pgn);
         }
         else if (strncmp(pcandata, "11", 2) == 0)
         {
@@ -752,7 +752,7 @@ int can_parse(char *can_input, cJSON *pgn_json)
             memset(muldata, 0, sizeof(muldata));
             mulptr = muldata;
             mul_frame_num = 0;
-            pgn_type=get_key_index(pgn_json, pgn);
+            pgn_type=MULPRE;
         }
         else
         {
@@ -776,8 +776,9 @@ int can_parse(char *can_input, cJSON *pgn_json)
 }
 
 // 初始化函数，打开相关文件并初始化写入
-void init()
+void init(char *name)
 {
+    char timestring[100]={0};
     // 定义CSV的头部字段
     const char *header_fields[] = {"帧编号", "帧id", "阶段", "PGN", "报文代号", "报文描述", "优先权", "源地址-目的地址", "帧长度", "帧数据", "帧数据含义"};
     const int num_header_fields = sizeof(header_fields) / sizeof(header_fields[0]);
@@ -785,7 +786,8 @@ void init()
     // 打开将要输出的目标csv文件
     time_t now = time(NULL);
     struct tm *local_time = localtime(&now);
-    strftime(output_filename, sizeof(output_filename), "analysis-%Y-%m-%d_%H-%M-%S.csv", local_time);
+    strftime(timestring, sizeof(timestring), "analysis-%Y-%m-%d_%H-%M-%S-%s.csv", local_time);
+    snprintf(output_filename, sizeof(output_filename), "%s-%s",name ,timestring);
     output_file = fopen(output_filename, "w");
     errorjudge(output_file, output_filename);
 
