@@ -120,7 +120,7 @@ void timer_handler(int signum) {
 //充电自检子线程
 static void* charge_check(void* arg){
     printf("正在进行充电自检\n");
-    sleep(30);//模拟充电自检，睡30s
+    sleep(5);//模拟充电自检，睡5s
     printf("充电机准备就绪\n");
     cfsm.currentEvent=EVENT_CHARGE_READY;
 }
@@ -326,14 +326,12 @@ void switchState(Charging_Event event) {
             break;
         case EVENT_RCV_BRM:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CRM_00){
-                printf("BRM1\n");
                 cancel_timer(&ctimerid1);//5s内收到了BRM,所以关闭定时器
                 handle_sent_crm_aa();
             }
             break;
         case EVENT_RCV_BCP:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CRM_AA){
-                printf("BCP1\n");
                 cancel_timer(&ctimerid1);//5s内收到了BCP,所以关闭定时器
                 hadle_parameter_check();
             }
@@ -416,9 +414,11 @@ void switchState(Charging_Event event) {
         case EVENT_RCV_BST:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CCS){
                 got_bst=1;
+                printf("收到BST报文\n");
                 handle_sent_cst();
-            }else if(cfsm.currentState==CSTATE_CYCLE_SENT_CST&&got_bst==0){
+            }else if(cfsm.currentState==CSTATE_CYCLE_SENT_CST && got_bst==0){
                 got_bst=1;
+                printf("收到BST报文\n");
                 cancel_timer(&ctimerid1);
                 if(got_bsd==1){
                     handle_sent_csd();
@@ -428,6 +428,7 @@ void switchState(Charging_Event event) {
         case EVENT_RCV_BSD:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CST && got_bsd==0){
                 got_bsd=1;
+                // printf("收到BSD报文\n");
                 cancel_timer(&ctimerid2);
                 if(got_bst==1){
                     handle_sent_csd();
@@ -584,12 +585,20 @@ int main(void){
     //创建监听子线程
     pthread_create(&ceventThread, NULL, eventListener, NULL);
 
+
+    int n=0;
     while (1) {
         // 切换状态
         switchState(cfsm.currentEvent);
         if(cfsm.currentState==CSTATE_EXIT){
             break;
         }
+        // if(cfsm.currentEvent!=EVENT_START && n<=10){
+        //     printf("EVENT %d\n",cfsm.currentEvent);
+        //     printf("S %d\n",cfsm.currentState);
+        //     n++;
+        // }
+        
     }
     close(sockfd);
     deinit();

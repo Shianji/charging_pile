@@ -109,7 +109,7 @@ void timer_handler(int signum) {
 //充电准备子线程
 static void* charge_prepare(void* arg){
     printf("正在进行充电准备工作\n");
-    sleep(30);//模拟充电准备，睡30s
+    sleep(5);//模拟充电准备，睡5s
     printf("充电机准备就绪\n");
     bfsm.currentEvent=BEVENT_CHARGE_READY;
 }
@@ -286,6 +286,7 @@ void switchState(BMS_Event event) {
                 cancel_timer(&btimerid1);//30s内收到了CRM_00,所以关闭定时器
                 handle_sent_brm();
             }
+            break;
         case BEVENT_RECV_CRM_AA:    
             if(bfsm.currentState == BSTATE_CYCLE_SENT_BRM){
                 cancel_timer(&btimerid1);//5s内收到了CRM_AA,所以关闭定时器
@@ -310,16 +311,15 @@ void switchState(BMS_Event event) {
             break;
         case BEVENT_RECV_CRO:
             if(bfsm.currentState == BSTATE_CYCLE_SENT_BRO_AA){
-                printf("收到CRO报文\n");
                 cancel_timer(&btimerid1);//5s内收到了CRO,所以关闭定时器
-                bfsm.currentState == BSTATE_RCV_CRO;
+                bfsm.currentState = BSTATE_RCV_CRO;
             }
             break;
         case BEVENT_RECV_CRO_AA:
             if(bfsm.currentState == BSTATE_RCV_CRO){
                 cancel_timer(&btimerid2);//60s内收到了CRO_AA,所以关闭定时器
                 //设置1S的定时器
-                set_timer(&btimerid1,1);
+                set_timer(&btimerid1,5);//
                 handle_sent_bcl_bcs();
             }
             break;
@@ -337,9 +337,11 @@ void switchState(BMS_Event event) {
         case BEVENT_RECV_CST:
             if(bfsm.currentState==BSTATE_CYCLE_SENT_BSM){
                 got_cst=1;
+                printf("收到CST报文\n");
                 handle_sent_bst();
             }else if(bfsm.currentState==BSTATE_CYCLE_SENT_BST && got_cst==0){
                 got_cst=1;
+                printf("收到CST报文\n");
                 cancel_timer(&btimerid1);
                 handle_sent_bsd();
             }
@@ -432,12 +434,12 @@ void* eventListener(void* arg) {
                     bfsm.currentEvent = BEVENT_RECV_CSD;
                 }
                 break;
+            case CTS:
             case MULPRE:
-
                 break; 
             default:
                 printf("接收到预期之外的帧数据,帧代号为：%d\n",frame_type);
-                break;            
+                break;
         }
     }
     }
@@ -507,12 +509,19 @@ int main(void){
     //创建监听子线程
     pthread_create(&beventThread, NULL, eventListener, NULL);
 
+    int n=0;
     while (1) {
         // 切换状态
         switchState(bfsm.currentEvent);
         if(bfsm.currentState==BSTATE_EXIT){
             break;
         }
+        // if(bfsm.currentEvent > 6 && n<=10){
+        //     printf("EVENT %d\n",bfsm.currentEvent);
+        //     printf("S %d\n",bfsm.currentState);
+        //     n++;
+        // }
+        
     }
     close(sockfd);
     deinit();
