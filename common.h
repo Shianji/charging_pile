@@ -10,7 +10,8 @@ typedef struct {
     int cycletime_ms;
 } thread_send_arg;
 
-extern void timer_handler(int signum);
+// extern void timer_handler(int signum);
+extern void timer_handler(int signum, siginfo_t *info, void *context);
 
 void timer_init(timer_t *timerid, int signum);
 void set_timer(timer_t timerid, int sec);

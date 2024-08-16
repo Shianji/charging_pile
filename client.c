@@ -47,23 +47,23 @@ typedef enum {
 
 // 定义事件
 typedef enum {
-    EVENT_START,
-    EVENT_RCV_BHM,
-    EVENT_SELF_CHECK_SUCCESS,
-    EVENT_RCV_BRM,                               //已经收到BRM报文，自首次发送CRM报文起5S，没收到BRM触发超时
-    EVENT_RCV_BCP,                               //已经收到BCP报文，停止发送CRM报文，自首次发送CRM报文起5S，没收到BRM触发超时
-    EVENT_PARAMETET_ADAPT,                       //参数合适
-    EVENT_RCV_BRO,                               //已经收到BRO报文，自首次发送CML报文起5S，没收到BRO触发超时
-    EVENT_RCV_BRO_AA,                            //已经收到BRO_AA报文，自首次发送CML报文起60S，没收到BRO触发超时
-    EVENT_CHARGE_READY,                          //充电机准备就绪
-    EVENT_RCV_BCL,                               //已收到BCL报文，停止发送CRO报文，自首次发送CRO报文起1S，没收到BCL触发超时
-    EVENT_RCV_BCS,                               //收到BCS报文
-    EVENT_RCV_BSM_00,                            //收到BSM(00)报文
-    EVENT_RCV_BSM_N00,                           //收到BSM报文,但不是BSM(00)
-    EVENT_CAN_OVER,                              //充电可以结束
-    EVENT_RCV_BST,                               //收到BST报文
-    EVENT_RCV_BSD,                               //收到BSD报文
-    EVENT_EXIT                                   //退出
+    CEVENT_START,
+    CEVENT_RCV_BHM,
+    CEVENT_SELF_CHECK_SUCCESS,
+    CEVENT_RCV_BRM,                               //已经收到BRM报文，自首次发送CRM报文起5S，没收到BRM触发超时
+    CEVENT_RCV_BCP,                               //已经收到BCP报文，停止发送CRM报文，自首次发送CRM报文起5S，没收到BRM触发超时
+    CEVENT_PARAMETET_ADAPT,                       //参数合适
+    CEVENT_RCV_BRO,                               //已经收到BRO报文，自首次发送CML报文起5S，没收到BRO触发超时
+    CEVENT_RCV_BRO_AA,                            //已经收到BRO_AA报文，自首次发送CML报文起60S，没收到BRO触发超时
+    CEVENT_CHARGE_READY,                          //充电机准备就绪
+    CEVENT_RCV_BCL,                               //已收到BCL报文，停止发送CRO报文，自首次发送CRO报文起1S，没收到BCL触发超时
+    CEVENT_RCV_BCS,                               //收到BCS报文
+    CEVENT_RCV_BSM_00,                            //收到BSM(00)报文
+    CEVENT_RCV_BSM_N00,                           //收到BSM报文,但不是BSM(00)
+    CEVENT_CAN_OVER,                              //充电可以结束
+    CEVENT_RCV_BST,                               //收到BST报文
+    CEVENT_RCV_BSD,                               //收到BSD报文
+    CEVENT_EXIT                                   //退出
 } Charging_Event;
 
 //充电机状态机结构
@@ -74,43 +74,43 @@ typedef struct {
 
 CStateMachine cfsm;
 
-void timer_handler(int signum) {
+void timer_handler(int signum, siginfo_t *info, void *context) {
     switch(cfsm.currentState){
         case CSTATE_CYCLE_SENT_CHM:
             printf("接受BHM超时!\n");
-            cfsm.currentEvent=EVENT_EXIT;
+            cfsm.currentEvent=CEVENT_EXIT;
             break;
         case CSTATE_CYCLE_SENT_CRM_00:
             printf("接受BRM超时!\n");
-            cfsm.currentEvent=EVENT_EXIT;
+            cfsm.currentEvent=CEVENT_EXIT;
             break;
         case CSTATE_CYCLE_SENT_CRM_AA:
             printf("接受BCP超时!\n");
-            cfsm.currentEvent=EVENT_EXIT;
+            cfsm.currentEvent=CEVENT_EXIT;
             break;
         case CSTATE_CYCLE_SENT_CTS_CML:
             printf("接受BRO超时!\n");
-            cfsm.currentEvent=EVENT_EXIT;
+            cfsm.currentEvent=CEVENT_EXIT;
             break;
         case CSTATE_RCV_BRO:
             printf("接受BRO_AA超时!\n");
-            cfsm.currentEvent=EVENT_EXIT;
+            cfsm.currentEvent=CEVENT_EXIT;
             break;
         case CSTATE_CYCLE_SENT_CRO_00:
             printf("充电准备过程中，接受BRO_AA超时!\n");
-            cfsm.currentEvent=EVENT_EXIT;
+            cfsm.currentEvent=CEVENT_EXIT;
             break;
         case CSTATE_CYCLE_SENT_CRO_AA:
             printf("接受BCL超时!\n");
-            cfsm.currentEvent=EVENT_EXIT;
+            cfsm.currentEvent=CEVENT_EXIT;
             break;
         case CSTATE_CYCLE_SENT_CCS:
             printf("接受BCL BCS或BSM超时!\n");
-            cfsm.currentEvent=EVENT_EXIT;
+            cfsm.currentEvent=CEVENT_EXIT;
             break;
         case CSTATE_CYCLE_SENT_CST:
             printf("接受BST或BSD超时!\n");
-            cfsm.currentEvent=EVENT_EXIT;
+            cfsm.currentEvent=CEVENT_EXIT;
             break;
         default:
             break;  
@@ -122,7 +122,7 @@ static void* charge_check(void* arg){
     printf("正在进行充电自检\n");
     sleep(5);//模拟充电自检，睡5s
     printf("充电机准备就绪\n");
-    cfsm.currentEvent=EVENT_CHARGE_READY;
+    cfsm.currentEvent=CEVENT_CHARGE_READY;
 }
 
 static void handle_charging_init(){
@@ -138,14 +138,14 @@ static void handle_charging_init(){
         exit(EXIT_FAILURE);
     }
     //设置10S的定时器
-    set_timer(&ctimerid1,10);
+    set_timer(ctimerid1,10);
 }
 
 static void handle_self_check(){
     printf("收到BHM报文,开始充电自检\n");
     cfsm.currentState = CSTATE_SELFCHECK;
     printf("充电自检成功(若失败应发送CST报文，表明自检故障,此处默认成功)\n");
-    cfsm.currentEvent=EVENT_SELF_CHECK_SUCCESS;
+    cfsm.currentEvent=CEVENT_SELF_CHECK_SUCCESS;
 }
 
 static void handle_sent_crm_00(){
@@ -160,7 +160,7 @@ static void handle_sent_crm_00(){
         exit(EXIT_FAILURE);
     }
     //设置5S的定时器
-    set_timer(&ctimerid1,5);
+    set_timer(ctimerid1,5);
 }
 
 static void handle_sent_crm_aa(){
@@ -176,7 +176,7 @@ static void handle_sent_crm_aa(){
         exit(EXIT_FAILURE);
     }
     //设置5S的定时器
-    set_timer(&ctimerid1,5);
+    set_timer(ctimerid1,5);
 }
 
 static void hadle_parameter_check(){
@@ -185,7 +185,7 @@ static void hadle_parameter_check(){
     kill_thread(csendThread1);
     cfsm.currentState = CSTATE_PARAMETET_ADAPT;
     printf("车辆参数合适(若不合适，则需发送CML及CST报文并退出充电,此处默认合适)\n");
-    cfsm.currentEvent=EVENT_PARAMETET_ADAPT;
+    cfsm.currentEvent=CEVENT_PARAMETET_ADAPT;
 }
 
 static void handle_sent_cts_cml(){
@@ -204,9 +204,9 @@ static void handle_sent_cts_cml(){
         exit(EXIT_FAILURE);
     }
     //设置5S的定时器
-    set_timer(&ctimerid1,5);
+    set_timer(ctimerid1,5);
     //设置60S的定时器
-    set_timer(&ctimerid2,60);
+    set_timer(ctimerid2,60);
 }
 
 static void handle_sent_cro_00(){
@@ -223,7 +223,7 @@ static void handle_sent_cro_00(){
         exit(EXIT_FAILURE);
     }
     //设置5S的定时器
-    set_timer(&ctimerid1,5);
+    set_timer(ctimerid1,5);
 }
 
 static void hadle_start_charge_check(){
@@ -246,7 +246,7 @@ static void handle_sent_cro_aa(){
         exit(EXIT_FAILURE);
     }
     //设置1S的定时器
-    set_timer(&ctimerid1,1);
+    set_timer(ctimerid1,1);
 }
 
 static void handle_sent_ccs(){
@@ -262,11 +262,11 @@ static void handle_sent_ccs(){
         exit(EXIT_FAILURE);
     }
     //设置1S的定时器
-    set_timer(&ctimerid1,1);
+    set_timer(ctimerid1,1);
     //设置5S的定时器
-    set_timer(&ctimerid2,5);
+    set_timer(ctimerid2,5);
     //设置5S的定时器
-    set_timer(&ctimerid3,5);
+    set_timer(ctimerid3,5);
 }
 
 static void handle_sent_cst(){
@@ -280,10 +280,10 @@ static void handle_sent_cst(){
     }
     if(got_bst!=1){//若是主动结束还要接收BST
         //设置5S的定时器
-        set_timer(&ctimerid1,5);
+        set_timer(ctimerid1,5);
     }
     //设置10S的定时器
-    set_timer(&ctimerid2,10);
+    set_timer(ctimerid2,10);
 
 }
 
@@ -301,117 +301,117 @@ static void handle_sent_csd(){
     sleep(10);
     printf("低压辅助供电回路断开\n");
     printf("电子锁解锁\n");
-    cfsm.currentEvent=EVENT_EXIT;
+    cfsm.currentEvent=CEVENT_EXIT;
 }
 
 
 //状态切换函数
 void switchState(Charging_Event event) {
     switch (event) {
-        case EVENT_START:
+        case CEVENT_START:
             if(cfsm.currentState==CSTATE_INIT){
                 handle_charging_init();
             }
             break;
-        case EVENT_RCV_BHM:
+        case CEVENT_RCV_BHM:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CHM){
-                cancel_timer(&ctimerid1);//10s内收到了BHM,所以关闭定时器
+                cancel_timer(ctimerid1);//10s内收到了BHM,所以关闭定时器
                 handle_self_check();
             }
             break;
-        case EVENT_SELF_CHECK_SUCCESS:
+        case CEVENT_SELF_CHECK_SUCCESS:
             if(cfsm.currentState==CSTATE_SELFCHECK){
                 handle_sent_crm_00();
             }
             break;
-        case EVENT_RCV_BRM:
+        case CEVENT_RCV_BRM:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CRM_00){
-                cancel_timer(&ctimerid1);//5s内收到了BRM,所以关闭定时器
+                cancel_timer(ctimerid1);//5s内收到了BRM,所以关闭定时器
                 handle_sent_crm_aa();
             }
             break;
-        case EVENT_RCV_BCP:
+        case CEVENT_RCV_BCP:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CRM_AA){
-                cancel_timer(&ctimerid1);//5s内收到了BCP,所以关闭定时器
+                cancel_timer(ctimerid1);//5s内收到了BCP,所以关闭定时器
                 hadle_parameter_check();
             }
             break;
-        case EVENT_PARAMETET_ADAPT:
+        case CEVENT_PARAMETET_ADAPT:
             if(cfsm.currentState==CSTATE_PARAMETET_ADAPT){
                 handle_sent_cts_cml();
             }
             break;
-        case EVENT_RCV_BRO:
+        case CEVENT_RCV_BRO:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CTS_CML){
                 printf("第一次收到BRO报文\n");
-                cancel_timer(&ctimerid1);//5s内收到了BRO,所以关闭定时器
+                cancel_timer(ctimerid1);//5s内收到了BRO,所以关闭定时器
                 cfsm.currentState=CSTATE_RCV_BRO;
             }else if(cfsm.currentState==CSTATE_CYCLE_SENT_CRO_00){
                 printf("充电机准备期间收到BRO(00)报文\n");
-                cfsm.currentEvent=EVENT_EXIT;//周期发送CRO_00时收到BRO但不是BRO_AA应发送CST，此处直接退出
+                cfsm.currentEvent=CEVENT_EXIT;//周期发送CRO_00时收到BRO但不是BRO_AA应发送CST，此处直接退出
             }
             break;
-        case EVENT_RCV_BRO_AA:
+        case CEVENT_RCV_BRO_AA:
             if(cfsm.currentState==CSTATE_RCV_BRO){
-                cancel_timer(&ctimerid2);//60s内收到了BRO_AA,所以关闭定时器
+                cancel_timer(ctimerid2);//60s内收到了BRO_AA,所以关闭定时器
                 handle_sent_cro_00();
                 hadle_start_charge_check();
             }else if(cfsm.currentState==CSTATE_CYCLE_SENT_CRO_00){
-                cancel_timer(&ctimerid1);//5s内收到了BRO_AA,重置定时器
-                set_timer(&ctimerid1,5);
+                cancel_timer(ctimerid1);//5s内收到了BRO_AA,重置定时器
+                set_timer(ctimerid1,5);
             }
             break;
-        case EVENT_CHARGE_READY:
+        case CEVENT_CHARGE_READY:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CRO_00){
-                cancel_timer(&ctimerid1);//已准备就绪，取消定时器
+                cancel_timer(ctimerid1);//已准备就绪，取消定时器
                 handle_sent_cro_aa();
             }
             break;
-        case EVENT_RCV_BCL:
+        case CEVENT_RCV_BCL:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CRO_AA){
-                cancel_timer(&ctimerid1);//1s内收到了BCL
+                cancel_timer(ctimerid1);//1s内收到了BCL
                 handle_sent_ccs();
-                set_timer(&ctimerid1,1);//重置定时器
+                set_timer(ctimerid1,1);//重置定时器
             }else if(cfsm.currentState==CSTATE_CYCLE_SENT_CCS){
-                cancel_timer(&ctimerid1);//1s内收到了BCL,重置定时器
-                set_timer(&ctimerid1,1);
+                cancel_timer(ctimerid1);//1s内收到了BCL,重置定时器
+                set_timer(ctimerid1,1);
             }
             break;
-        case EVENT_RCV_BCS:
+        case CEVENT_RCV_BCS:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CCS){
-                cancel_timer(&ctimerid2);//5s内收到了BCS,重置定时器
-                set_timer(&ctimerid2,5);
+                cancel_timer(ctimerid2);//5s内收到了BCS,重置定时器
+                set_timer(ctimerid2,5);
                 got_bcs_times++;
                 if(got_bcs_times==100){//判断是否已经收到100次BCS,以此来模拟充电结束
                     can_over=1;
                 }
             }
             break;
-        case EVENT_RCV_BSM_00:
+        case CEVENT_RCV_BSM_00:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CCS){
-                cancel_timer(&ctimerid3);//5s内收到了BSM,重置定时器
-                set_timer(&ctimerid3,5);
+                cancel_timer(ctimerid3);//5s内收到了BSM,重置定时器
+                set_timer(ctimerid3,5);
                 //收到BSM(00)，判断是否继续充电，此处默认继续充电
             }
             break;
-        case EVENT_RCV_BSM_N00:
+        case CEVENT_RCV_BSM_N00:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CCS){
-                cancel_timer(&ctimerid3);//5s内收到了BSM,重置定时器
-                set_timer(&ctimerid3,5);    
+                cancel_timer(ctimerid3);//5s内收到了BSM,重置定时器
+                set_timer(ctimerid3,5);    
                 if(got_bst==1||can_over==1){//判断是否可以结束充电
-                    cancel_timer(&ctimerid1);//可以结束则取消定时器
-                    cancel_timer(&ctimerid2);
-                    cancel_timer(&ctimerid3);
-                    cfsm.currentEvent=EVENT_CAN_OVER;
+                    cancel_timer(ctimerid1);//可以结束则取消定时器
+                    cancel_timer(ctimerid2);
+                    cancel_timer(ctimerid3);
+                    cfsm.currentEvent=CEVENT_CAN_OVER;
                 }
             }
             break;
-        case EVENT_CAN_OVER:
+        case CEVENT_CAN_OVER:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CCS){
                 handle_sent_cst();
             }
             break;
-        case EVENT_RCV_BST:
+        case CEVENT_RCV_BST:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CCS){
                 got_bst=1;
                 printf("收到BST报文\n");
@@ -419,23 +419,23 @@ void switchState(Charging_Event event) {
             }else if(cfsm.currentState==CSTATE_CYCLE_SENT_CST && got_bst==0){
                 got_bst=1;
                 printf("收到BST报文\n");
-                cancel_timer(&ctimerid1);
+                cancel_timer(ctimerid1);
                 if(got_bsd==1){
                     handle_sent_csd();
                 }
             }
             break;
-        case EVENT_RCV_BSD:
+        case CEVENT_RCV_BSD:
             if(cfsm.currentState==CSTATE_CYCLE_SENT_CST && got_bsd==0){
                 got_bsd=1;
                 // printf("收到BSD报文\n");
-                cancel_timer(&ctimerid2);
+                cancel_timer(ctimerid2);
                 if(got_bst==1){
                     handle_sent_csd();
                 }
             }
             break;
-        case EVENT_EXIT:
+        case CEVENT_EXIT:
             kill_thread(csendThread2);
             kill_thread(csendThread1);
             kill_thread(ceventThread);
@@ -461,50 +461,43 @@ void* eventListener(void* arg) {
         printf("BMS端断开连接，通信结束\n");
         exit(0);
     }else{
-        //调试用
-        // printf("接受到%d字节\n",recvbytes);
-        // for(int i=0;i<recvbytes;i++){
-        //     printf("%02x",line_input[i]);
-        // }
-        // printf("\n");
-
         frame_type=can_parse(line_input,pgn_json,CAN_DATA_LEN);
         fprintf(output_file, "%s\n", line_output);
         switch(frame_type){
             case BHM:
                 if(cfsm.currentState==CSTATE_CYCLE_SENT_CHM){
-                    cfsm.currentEvent=EVENT_RCV_BHM;
+                    cfsm.currentEvent=CEVENT_RCV_BHM;
                 }
                 break;
             case BRM:
                 if(cfsm.currentState==CSTATE_CYCLE_SENT_CRM_00){
-                    cfsm.currentEvent=EVENT_RCV_BRM;
+                    cfsm.currentEvent=CEVENT_RCV_BRM;
                 }
                 break;
             case BCP:
                 if(cfsm.currentState==CSTATE_CYCLE_SENT_CRM_AA){
-                    cfsm.currentEvent=EVENT_RCV_BCP;
+                    cfsm.currentEvent=CEVENT_RCV_BCP;
                 }
                 break;
             case BRO:
                 if(cfsm.currentState==CSTATE_CYCLE_SENT_CTS_CML){
-                    cfsm.currentEvent=EVENT_RCV_BRO;
+                    cfsm.currentEvent=CEVENT_RCV_BRO;
                 }else if(cfsm.currentState==CSTATE_RCV_BRO||cfsm.currentState==CSTATE_CYCLE_SENT_CRO_00){
                     if(strncmp(caninfo.can_data,"AA",2)==0){//此处需要判断是否是AA
-                        cfsm.currentEvent=EVENT_RCV_BRO_AA;
+                        cfsm.currentEvent=CEVENT_RCV_BRO_AA;
                     }else{
-                        cfsm.currentEvent=EVENT_RCV_BRO;
+                        cfsm.currentEvent=CEVENT_RCV_BRO;
                     }
                 }
                 break;
             case BCL:
                 if(cfsm.currentState==CSTATE_CYCLE_SENT_CRO_AA||cfsm.currentState==CSTATE_CYCLE_SENT_CCS){
-                    cfsm.currentEvent=EVENT_RCV_BCL;
+                    cfsm.currentEvent=CEVENT_RCV_BCL;
                 }
                 break;
             case BCS:
                 if(cfsm.currentState==CSTATE_CYCLE_SENT_CCS){
-                    cfsm.currentEvent=EVENT_RCV_BCS;
+                    cfsm.currentEvent=CEVENT_RCV_BCS;
                 }
                 break;
             case BSM:
@@ -513,20 +506,20 @@ void* eventListener(void* arg) {
                     strncpy(temparry,caninfo.can_data+7,1);
                     int temp= hex_string_to_int(temparry);
                     if(((temp>>1)&0x01==0)&&((temp>>2)&0x01==0)){//此处需要判断是否是AA     需要进一步判断是哪几位，文档并没有明确
-                        cfsm.currentEvent=EVENT_RCV_BSM_00;
+                        cfsm.currentEvent=CEVENT_RCV_BSM_00;
                     }else{
-                        cfsm.currentEvent=EVENT_RCV_BSM_N00;
+                        cfsm.currentEvent=CEVENT_RCV_BSM_N00;
                     }
                 }
                 break;
             case BST:
                 if(cfsm.currentState==CSTATE_CYCLE_SENT_CCS||cfsm.currentState==CSTATE_CYCLE_SENT_CST){
-                    cfsm.currentEvent=EVENT_RCV_BST;
+                    cfsm.currentEvent=CEVENT_RCV_BST;
                 }
                 break;
             case BSD:
                 if(cfsm.currentState==CSTATE_CYCLE_SENT_CST){
-                    cfsm.currentEvent=EVENT_RCV_BSD;
+                    cfsm.currentEvent=CEVENT_RCV_BSD;
                 }
                 break;
             case MULPRE:
@@ -581,7 +574,7 @@ int main(void){
 
     // 初始化状态机
     cfsm.currentState = CSTATE_INIT;
-    cfsm.currentEvent = EVENT_START;
+    cfsm.currentEvent = CEVENT_START;
     //创建监听子线程
     pthread_create(&ceventThread, NULL, eventListener, NULL);
 
@@ -593,12 +586,6 @@ int main(void){
         if(cfsm.currentState==CSTATE_EXIT){
             break;
         }
-        // if(cfsm.currentEvent!=EVENT_START && n<=10){
-        //     printf("EVENT %d\n",cfsm.currentEvent);
-        //     printf("S %d\n",cfsm.currentState);
-        //     n++;
-        // }
-        
     }
     close(sockfd);
     deinit();

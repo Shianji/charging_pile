@@ -6,14 +6,14 @@
 #define NUM_BCHILDREN    11
 
 
-const uint8_t BFRAME_BHM[12]={0X18, 0X27, 0X56, 0XF4, 0XA5, 0X10, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF};                  // 充电机握手报文
-const uint8_t BFRAME_BRM[12]={0X1C, 0XEC, 0X56, 0XF4, 0X10, 0X31, 0X00, 0X07, 0XFF, 0X00, 0X02, 0X00};                  //BMS和车辆辨识报文    //多帧1
+const uint8_t BFRAME_BHM[12]={0X18, 0X27, 0X56, 0XF4, 0XA5, 0X10, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF};                  //充电机握手报文
+const uint8_t BFRAME_BRM[12]={0X1C, 0XEC, 0X56, 0XF4, 0X10, 0X31, 0X00, 0X07, 0XFF, 0X00, 0X02, 0X00};                  //BMS和车辆辨识报文        //多帧1
 
 const uint8_t BFRAME_BCP[12]={0X1C, 0XEC, 0X56, 0XF4, 0X10, 0X0D, 0X00, 0X02, 0XFF, 0X00, 0X06, 0X00};                  //动力蓄电池充电参数报文    //多帧1
 const uint8_t BFRAME_BRO_00[12]={0X10, 0X09, 0X56, 0XF4, 0X00, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF};               //车辆充电准备就绪状态报文
 const uint8_t BFRAME_BRO_AA[12]={0X10, 0X09, 0X56, 0XF4, 0XAA, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF};               //车辆充电准备就绪状态报文
 const uint8_t BFRAME_BCL[12]={0X18, 0X10, 0X56, 0XF4, 0XA5, 0X10, 0XD8, 0X0E, 0X02, 0XFF, 0XFF, 0XFF};                  //电池充电需求报文
-const uint8_t BFRAME_BCS[12]={0X1C, 0XEC, 0X56, 0XF4, 0X10, 0X09, 0X00, 0X02, 0XFF, 0X00, 0X11, 0X00};                  //电池充电总状态报文    //多帧1
+const uint8_t BFRAME_BCS[12]={0X1C, 0XEC, 0X56, 0XF4, 0X10, 0X09, 0X00, 0X02, 0XFF, 0X00, 0X11, 0X00};                  //电池充电总状态报文        //多帧1
 const uint8_t BFRAME_BSM[12]={0X18, 0X13, 0X56, 0XF4, 0X1E, 0X36, 0X06, 0X35, 0X0F, 0X00, 0X10, 0XFF};                  //动力蓄电池状态信息报文
 const uint8_t BFRAME_BST[12]={0X10, 0X19, 0X56, 0XF4, 0X40, 0X00, 0X00, 0X00, 0XFF, 0XFF, 0XFF, 0XFF};                  //车辆中止充电报文
 const uint8_t BFRAME_BSD[12]={0X18, 0X1C, 0X56, 0XF4, 0X4D, 0X4D, 0X01, 0X4D, 0X01, 0X35, 0X36, 0XFF};                  //车辆统计数据报文
@@ -21,7 +21,7 @@ const uint8_t BFRAME_BSD[12]={0X18, 0X1C, 0X56, 0XF4, 0X4D, 0X4D, 0X01, 0X4D, 0X
 int sockfd, connfd;;//套接字通信接口
 int got_cst=0,got_csd=0,bcan_over=0;
 pthread_t beventThread,bsendThread1,bsendThread2,bsendThread3,bsendThread4;
-timer_t btimerid1, btimerid2,btimerid3;
+timer_t btimerid1, btimerid2;
 thread_send_arg bframe1,bframe2,bframe3,bframe4;
 
 // 定义状态
@@ -67,7 +67,7 @@ typedef struct {
 
 BStateMachine bfsm;
 
-void timer_handler(int signum) {
+void timer_handler(int signum, siginfo_t *info, void *context) {
     switch(bfsm.currentState){
         case BSTATE_CYCLE_SENT_BHM:
             printf("接收CRM(00)超时!\n");
@@ -130,7 +130,7 @@ static void handle_sent_bhm(){
         exit(EXIT_FAILURE);
     }
     //设置30S的定时器
-    set_timer(&btimerid1,30);
+    set_timer(btimerid1,30);
 }  
 
 static void handle_sent_brm(){
@@ -146,7 +146,7 @@ static void handle_sent_brm(){
         exit(EXIT_FAILURE);
     }
     //设置5S的定时器
-    set_timer(&btimerid1,5);
+    set_timer(btimerid1,5);
 }
 
 static void  handle_sent_bcp(){
@@ -162,7 +162,7 @@ static void  handle_sent_bcp(){
         exit(EXIT_FAILURE);
     }
     //设置5S的定时器
-    set_timer(&btimerid1,5);
+    set_timer(btimerid1,5);
 }
 
 static void hadle_parameter_check(){
@@ -203,9 +203,9 @@ static void handle_sent_bro_aa(){
         exit(EXIT_FAILURE);
     }
     //设置5S的定时器
-    set_timer(&btimerid1,5);
+    set_timer(btimerid1,5);
     //设置60S的定时器
-    set_timer(&btimerid2,60);
+    set_timer(btimerid2,60);
 }
 
 static void handle_sent_bcl_bcs(){
@@ -251,10 +251,10 @@ static void handle_sent_bst(){
     }
     if(got_cst!=1){//若是主动结束还要接收BST
         //设置5S的定时器
-        set_timer(&btimerid1,5);
+        set_timer(btimerid1,5);
     }
     //设置10S的定时器
-    set_timer(&btimerid2,10);
+    set_timer(btimerid2,10);
 }
 
 static void handle_sent_bsd(){
@@ -283,19 +283,19 @@ void switchState(BMS_Event event) {
             break;
         case BEVENT_RECV_CRM_00:
             if(bfsm.currentState == BSTATE_CYCLE_SENT_BHM){
-                cancel_timer(&btimerid1);//30s内收到了CRM_00,所以关闭定时器
+                cancel_timer(btimerid1);//30s内收到了CRM_00,所以关闭定时器
                 handle_sent_brm();
             }
             break;
         case BEVENT_RECV_CRM_AA:    
             if(bfsm.currentState == BSTATE_CYCLE_SENT_BRM){
-                cancel_timer(&btimerid1);//5s内收到了CRM_AA,所以关闭定时器
+                cancel_timer(btimerid1);//5s内收到了CRM_AA,所以关闭定时器
                 handle_sent_bcp();
             }
             break;
         case BEVENT_RECV_CML:
             if(bfsm.currentState == BSTATE_CYCLE_SENT_BCP){
-                cancel_timer(&btimerid1);//5s内收到了CML,所以关闭定时器
+                cancel_timer(btimerid1);//5s内收到了CML,所以关闭定时器
                 hadle_parameter_check();
             };
             break;
@@ -311,21 +311,21 @@ void switchState(BMS_Event event) {
             break;
         case BEVENT_RECV_CRO:
             if(bfsm.currentState == BSTATE_CYCLE_SENT_BRO_AA){
-                cancel_timer(&btimerid1);//5s内收到了CRO,所以关闭定时器
+                cancel_timer(btimerid1);//5s内收到了CRO,所以关闭定时器
                 bfsm.currentState = BSTATE_RCV_CRO;
             }
             break;
         case BEVENT_RECV_CRO_AA:
             if(bfsm.currentState == BSTATE_RCV_CRO){
-                cancel_timer(&btimerid2);//60s内收到了CRO_AA,所以关闭定时器
+                cancel_timer(btimerid2);//60s内收到了CRO_AA,所以关闭定时器
                 //设置1S的定时器
-                set_timer(&btimerid1,5);//
+                set_timer(btimerid1,5);//
                 handle_sent_bcl_bcs();
             }
             break;
         case BEVENT_RECV_CCS:
             if(bfsm.currentState == BSTATE_CYCLE_SENT_BCL_BCS){
-                cancel_timer(&btimerid1);//1s内收到了CCS,所以关闭定时器
+                cancel_timer(btimerid1);//1s内收到了CCS,所以关闭定时器
                 handle_sent_bsm();
             }else if(bfsm.currentState == BSTATE_CYCLE_SENT_BSM){
                 bcan_over++;
@@ -342,13 +342,13 @@ void switchState(BMS_Event event) {
             }else if(bfsm.currentState==BSTATE_CYCLE_SENT_BST && got_cst==0){
                 got_cst=1;
                 printf("收到CST报文\n");
-                cancel_timer(&btimerid1);
+                cancel_timer(btimerid1);
                 handle_sent_bsd();
             }
             break;
         case BEVENT_RECV_CSD:
             if(bfsm.currentState==BSTATE_CYCLE_SENT_BSD){
-                cancel_timer(&btimerid2);
+                cancel_timer(btimerid2);
                 bfsm.currentEvent==BEVENT_EXIT;
             }
             break;
@@ -379,13 +379,6 @@ void* eventListener(void* arg) {
         printf("charging端断开连接，通信结束\n");
         exit(0);
     }else{
-        //调试用
-        // printf("接受到%d字节\n",recvbytes);
-        // for(int i=0;i<recvbytes;i++){
-        //     printf("%02x",line_input[i]);
-        // }
-        // printf("\n");
-
         frame_type=can_parse(line_input,pgn_json,CAN_DATA_LEN);
         fprintf(output_file, "%s\n", line_output);
         switch(frame_type){
@@ -503,6 +496,10 @@ int main(void){
     bframe3.sockfd=connfd;
     bframe4.sockfd=connfd;
 
+    // 初始化2个定时器
+    timer_init(&btimerid1, SIGRTMIN+2);
+    timer_init(&btimerid2, SIGRTMIN+3);
+
     // 初始化状态机
     bfsm.currentState = BSTATE_INIT;
     bfsm.currentEvent = BEVENT_START;
@@ -516,12 +513,6 @@ int main(void){
         if(bfsm.currentState==BSTATE_EXIT){
             break;
         }
-        // if(bfsm.currentEvent > 6 && n<=10){
-        //     printf("EVENT %d\n",bfsm.currentEvent);
-        //     printf("S %d\n",bfsm.currentState);
-        //     n++;
-        // }
-        
     }
     close(sockfd);
     deinit();

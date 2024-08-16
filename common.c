@@ -7,7 +7,7 @@ void timer_init(timer_t *timerid, int signum) {
 
     // 设置信号处理函数
     sa.sa_flags = SA_SIGINFO;
-    sa.sa_handler = timer_handler;
+    sa.sa_sigaction = timer_handler;
     sigemptyset(&sa.sa_mask);
     sigaction(signum, &sa, NULL);
 
