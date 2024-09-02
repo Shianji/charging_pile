@@ -2,7 +2,7 @@
 #include "common.h"
 
 #define SERVER_PORT		8888          	//服务器的端口号
-#define SERVER_IP   	"172.16.41.204 "	//服务器的IP地址
+#define SERVER_IP   	"192.168.18.200"	//服务器的IP地址
 #define NUM_CCHILDREN    11
 
 
@@ -300,7 +300,7 @@ static void handle_sent_csd(){
     }
     sleep(10);
     printf("低压辅助供电回路断开\n");
-    printf("电子锁解锁\n");
+    printf("电子锁解锁\n本次充电结束\n");
     cfsm.currentEvent=CEVENT_EXIT;
 }
 
@@ -436,6 +436,10 @@ void switchState(Charging_Event event) {
             }
             break;
         case CEVENT_EXIT:
+            got_bst=0;
+            got_bsd=0;
+            can_over=0;
+            got_bcs_times=0;
             kill_thread(csendThread2);
             kill_thread(csendThread1);
             kill_thread(ceventThread);
@@ -584,6 +588,14 @@ int main(void){
         // 切换状态
         switchState(cfsm.currentEvent);
         if(cfsm.currentState==CSTATE_EXIT){
+            // printf("退出至初始状态重启\n");
+            // // 初始化状态机
+            // cfsm.currentState = CSTATE_INIT;
+            // cfsm.currentEvent = CEVENT_START;
+            // //创建监听子线程
+            // pthread_create(&ceventThread, NULL, eventListener, NULL);
+            
+
             break;
         }
     }

@@ -349,10 +349,14 @@ void switchState(BMS_Event event) {
         case BEVENT_RECV_CSD:
             if(bfsm.currentState==BSTATE_CYCLE_SENT_BSD){
                 cancel_timer(btimerid2);
+                printf("本次充电结束\n");
                 bfsm.currentEvent==BEVENT_EXIT;
             }
             break;
         case BEVENT_EXIT:
+            got_cst=0;
+            got_csd=0;
+            bcan_over=0;
             kill_thread(bsendThread4);
             kill_thread(bsendThread3);
             kill_thread(bsendThread2);
@@ -511,6 +515,13 @@ int main(void){
         // 切换状态
         switchState(bfsm.currentEvent);
         if(bfsm.currentState==BSTATE_EXIT){
+            // printf("退出至初始状态重启\n");
+            // // 初始化状态机
+            // bfsm.currentState = BSTATE_INIT;
+            // bfsm.currentEvent = BEVENT_START;
+            // //创建监听子线程
+            // pthread_create(&beventThread, NULL, eventListener, NULL);
+
             break;
         }
     }
